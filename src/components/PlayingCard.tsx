@@ -23,26 +23,29 @@ const RANK_NAME: Record<Rank, string> = {
  * would make you stop and decode it, which is the one thing a drill timer
  * should not be measuring.
  */
-export function PlayingCard({ card }: { card: Card }) {
+export function PlayingCard({ card, scale = 1 }: { card: Card; scale?: number }) {
   const { rank, suit } = splitCard(card);
   const isRed = suit === "h" || suit === "d";
 
+  // Board cards are the same card at a smaller size rather than a different
+  // component, so a five card board and the two in your hand cannot drift
+  // apart in how they read.
   return (
     <div
       className="flex select-none flex-col items-center justify-center rounded-lg bg-neutral-50 shadow-lg ring-1 ring-black/20"
-      style={{ width: "4.5rem", height: "6.25rem" }}
+      style={{ width: `${4.5 * scale}rem`, height: `${6.25 * scale}rem` }}
       role="img"
       aria-label={`${RANK_NAME[rank]} of ${SUIT_NAME[suit]}`}
     >
       <span
         className={isRed ? "text-red-600" : "text-neutral-900"}
-        style={{ fontSize: "2rem", lineHeight: 1, fontWeight: 600 }}
+        style={{ fontSize: `${2 * scale}rem`, lineHeight: 1, fontWeight: 600 }}
       >
         {rank}
       </span>
       <span
         className={isRed ? "text-red-600" : "text-neutral-900"}
-        style={{ fontSize: "1.5rem", lineHeight: 1.2 }}
+        style={{ fontSize: `${1.5 * scale}rem`, lineHeight: 1.2 }}
         aria-hidden
       >
         {SUIT_SYMBOL[suit]}
