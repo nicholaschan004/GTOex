@@ -10,7 +10,7 @@
 [![React](https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Tailwind](https://img.shields.io/badge/Tailwind-3-38bdf8?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
-[![Tests](https://img.shields.io/badge/tests-334-3fb950?style=flat-square)](#correctness)
+[![Tests](https://img.shields.io/badge/tests-393-3fb950?style=flat-square)](#correctness)
 
 </div>
 
@@ -61,7 +61,7 @@ the hand. The percentage on that screen is computed from the chips on the table,
 comes out equal to the (S−1)/2S threshold the solver derived independently from the payoffs.
 A test holds the two together at every stack depth.
 
-## The solver
+## The push/fold solver
 
 Below about fifteen big blinds the game collapses to two ranges: the small blind shoves or
 folds, the big blind calls or folds. No later streets, no bet sizing. That is small enough
@@ -109,6 +109,50 @@ of hands, because a third of the pot is worth less than the half blind you save.
 the relationship that holds everywhere else: at four blinds it is putting in three to win
 five, while the shove risks a whole stack to pick up one blind of dead money.
 
+## The river solver
+
+Preflop is not the interesting part of poker, and the trainer is honest that most of its
+preflop data was written rather than computed. `src/lib/solver/` is the start of fixing
+that from the other end: a **postflop solver**, exact on the river.
+
+Give it a board, two ranges, a pot and a stack, and it returns a strategy with a number
+attached saying how far from equilibrium it is. Discounted CFR ([Brown and Sandholm,
+2019](https://arxiv.org/pdf/1809.04040)), vector form, over all 1081 combinations rather
+than the 169 preflop classes, because on a board of `Ah 7h 2c` the ace of hearts is not
+interchangeable with the ace of spades.
+
+**The thing that makes it fast enough to matter.** At every terminal, each of 1081 hands
+needs its value against the opponent's whole range, which written the obvious way is 1.2M
+operations per node per iteration. It is linear instead. Folds come from one pass of
+per-card sums; showdowns come from sorting the hands by rank once, at setup, and sweeping
+the order with running totals that carry the blocked hands separately. Card removal is not
+a correction bolted on afterwards, it is inside both sweeps, because which hands you block
+is a large part of why a river bluff works.
+
+|  | 400 iterations | exploitability |
+| --- | --- | --- |
+| one bet size, no raises | 113ms | 0.0022% of pot |
+| two sizes, one raise | 317ms | 0.0172% of pot |
+| three sizes, two raises | 813ms | 0.0295% of pot |
+
+**How it is checked.** By exploitability, again: what either player could gain by
+abandoning the solution and playing the best response to it, which is zero at an
+equilibrium. And by the [0,1]-style **polarised river game**, whose answer is known on
+paper — bet the nuts, bluff so that bluffs are exactly `B/(P+2B)` of the betting range,
+call so the bluffer is indifferent. With a pot-sized bet the theory says bluff 25% of the
+air, making bluffs a third of all bets, and call half the bluff-catchers. The solver, which
+knows none of that, produces 25.0%, 33.3% and 50.0%.
+
+Both linear-time terminal evaluations are also checked against a deliberately slow
+quadratic version, on four boards chosen to be awkward: one with a flush live, one where
+the board is a royal flush and every hand ties, one that is quads with only a kicker to
+separate hands, and one ordinary one.
+
+The turn is the next phase, and it is where approximation becomes necessary — 48 river
+subgames under every turn iteration. The plan for it, including which abstractions are
+allowed and which would quietly destroy blockers, is in
+[docs/postflop-solver.md](docs/postflop-solver.md).
+
 ## The equity engine
 
 A seven card evaluator and all-in equity, by exact enumeration or by sampling. It is only
@@ -142,7 +186,7 @@ come back out as `22+, A2s+, K3s+` like every other chart in the project.
 
 ## Correctness
 
-`npm test` runs 334 cases. The ones doing real work:
+`npm test` runs 393 cases. The ones doing real work:
 
 - **Always giving one answer scores that action's frequency.** Answer "raise" to every hand
   and your accuracy in a spot has to converge on how often that spot's chart says to raise.
@@ -165,6 +209,9 @@ come back out as `22+, A2s+, K3s+` like every other chart in the project.
   failure instead of a silent win for whichever range was consulted first.
 - **Opening ranges nest and widen correctly**: within a depth, every UTG open is also a
   button open; within a seat, opening frequency rises with stack depth.
+- **The river solver reproduces a game whose answer is known on paper**, and both of its
+  linear-time terminal evaluations agree with a quadratic reference on four awkward boards,
+  including one where the board is a royal flush and every hand ties.
 
 `npm run check:classes` fails the build when a Tailwind class used in `src/` produced no
 CSS. A misspelled utility is not an error anywhere else in the pipeline, it just silently
@@ -182,6 +229,7 @@ src/lib/charts/         range data; pushfold.generated.ts is solver output
 src/lib/drill.ts        spot generation and scoring
 src/lib/sizing.ts       open and 3-bet sizes, from two rules
 src/lib/table.ts        who is sitting where, what they put in, what it costs
+src/lib/solver/         the postflop solver: tree, terminals, discounted CFR
 ```
 
 ## Running it
