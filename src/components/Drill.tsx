@@ -27,11 +27,29 @@ import {
   weakestSpots,
   writeProgress,
 } from "../lib/progress";
+import { formatChips } from "../lib/sizing";
+import { tableFor, type TableView } from "../lib/table";
 import { cn } from "../lib/cn";
 import { PlayingCard } from "./PlayingCard";
+import { PokerTable } from "./PokerTable";
 import { RangeGrid } from "./RangeGrid";
 
 const SHORTCUT: Record<Action, string> = { fold: "F", call: "C", raise: "R" };
+
+/**
+ * The price under an action, or nothing when the action does not have one.
+ *
+ * Folding is free, and a raise the spot does not offer has no size, so both
+ * come back null rather than as an empty string the button would still lay out
+ * space for.
+ */
+function priceOf(spot: Spot, action: Action, view: TableView): string | null {
+  if (action === "fold") return null;
+  if (action === "call") return view.toCall > 0 ? formatChips(view.toCall) : null;
+  if (view.raiseTo === null) return null;
+  // "All in 10bb" reads as a size; "All in to 10bb" reads as a typo.
+  return spot.kind === "pushfold" ? formatChips(view.raiseTo) : `to ${formatChips(view.raiseTo)}`;
+}
 
 export function Drill() {
   const [mode, setMode] = useState<DrillMode>("rfi");
@@ -95,25 +113,55 @@ export function Drill() {
   };
 
   const layers = layersFor(spot);
+  const view = tableFor(spot);
   const overall = totals(progress);
   const overallAccuracy = accuracy(overall);
   const weakest = weakestSpots(progress);
   const bestLayer = layers.find((layer) => layer.action === verdict?.best);
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-5 px-4 py-6">
-      <header className="flex items-baseline justify-between gap-4">
+    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-4 px-4 pb-6">
+      {/*
+        Sticky, and Next hand lives in it.
+
+        Answering a hand unfolds the range grid underneath, which pushed the old
+        Next button down the page by the height of a 13x13 chart, so the control
+        you press most often was the one that moved most. Up here it is in the
+        same place on every hand and still on screen after the grid appears,
+        which matters on a phone where Enter is not an option.
+      */}
+      <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-line bg-base/95 py-3 backdrop-blur">
         <h1 className="text-xl font-semibold tracking-tight text-ink">GTO Trainer</h1>
-        <div className="flex items-center gap-4 font-mono text-sm text-muted">
-          {/* An unattempted session shows nothing here rather than 0%, which
-              would read as a score you had earned. */}
-          {overallAccuracy !== null && (
-            <span>
-              <span className="text-ink">{overall.correct}</span>/{overall.attempts}{" "}
-              {overallAccuracy.toFixed(0)}%
-            </span>
-          )}
-          {progress.streak > 0 && <span>streak {progress.streak}</span>}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 font-mono text-sm text-muted">
+            {/* An unattempted session shows nothing here rather than 0%, which
+                would read as a score you had earned. */}
+            {overallAccuracy !== null && (
+              <span>
+                <span className="text-ink">{overall.correct}</span>/{overall.attempts}{" "}
+                {overallAccuracy.toFixed(0)}%
+              </span>
+            )}
+            {progress.streak > 0 && <span className="hidden sm:inline">streak {progress.streak}</span>}
+          </div>
+          {/*
+            Disabled rather than hidden before you answer. It holds its slot so
+            nothing shifts when it lights up, and skipping a hand you did not
+            like the look of is not a thing a drill should let you do.
+          */}
+          <button
+            onClick={() => nextHand()}
+            disabled={!verdict}
+            className={cn(
+              "shrink-0 rounded-lg px-3 py-1.5 text-sm transition-colors",
+              verdict
+                ? "bg-felt text-ink hover:bg-felt/80"
+                : "border border-line text-muted opacity-40",
+            )}
+          >
+            Next hand
+            <span className="ml-2 font-mono text-xs text-muted">⏎</span>
+          </button>
         </div>
       </header>
 
@@ -144,10 +192,22 @@ export function Drill() {
         </nav>
       )}
 
-      <section className="space-y-1 pt-2 text-center">
+      <section className="space-y-1 text-center">
         <p className="text-sm text-muted">{spotHeading(spot)}</p>
         <p className="text-sm text-muted">{spotStory(spot)}</p>
       </section>
+
+      <PokerTable view={view} />
+
+      {/* Pot odds only appear where they are the whole answer, which is the
+          all-in spot. See the note in table.ts for why the other modes get
+          none. */}
+      {view.potOdds !== null && (
+        <p className="-mt-2 text-center text-xs text-muted">
+          Calling {formatChips(view.toCall)} to win {formatChips(view.pot)}, so the call needs{" "}
+          <span className="text-ink">{(view.potOdds * 100).toFixed(1)}%</span> equity.
+        </p>
+      )}
 
       <div className="flex justify-center gap-3" aria-label="Your hand">
         <PlayingCard card={spot.cards[0]} />
@@ -162,6 +222,7 @@ export function Drill() {
               onClick={() => answer(action)}
               shortcut={SHORTCUT[action]}
               emphasis={action !== "fold"}
+              price={priceOf(spot, action, view)}
             >
               {actionLabel(spot, action)}
             </ActionButton>
@@ -189,7 +250,11 @@ export function Drill() {
                 "outside every continuing range"
               )}
               , so the play is{" "}
-              <span className="text-ink">{actionLabel(spot, verdict.best).toLowerCase()}</span>.
+              <span className="text-ink">{actionLabel(spot, verdict.best).toLowerCase()}</span>
+              {priceOf(spot, verdict.best, view) && (
+                <span className="text-ink"> {priceOf(spot, verdict.best, view)}</span>
+              )}
+              .
             </p>
           </div>
 
@@ -200,12 +265,6 @@ export function Drill() {
                 .map((layer) => `${layer.label} ${comboPercent(layer.hands).toFixed(1)}%`)
                 .join(" · ")}
             </p>
-          </div>
-
-          <div className="flex justify-center">
-            <ActionButton onClick={() => nextHand()} shortcut="Enter" emphasis>
-              Next hand
-            </ActionButton>
           </div>
         </div>
       )}
@@ -227,8 +286,8 @@ export function Drill() {
               per mode because only one of these modes was solved. */}
           <p>
             {mode === "pushfold"
-              ? "Solved: fictitious play over a computed equity matrix, verified unexploitable."
-              : "Baseline charts, not solver output. Conventional ranges, to be replaced by computed ones."}
+              ? "Solved: fictitious play over a computed equity matrix, verified unexploitable. Shoving is the only size, so there is nothing to choose."
+              : "Baseline charts and sizes, not solver output. Conventional ranges, to be replaced by computed ones."}
           </p>
           {overall.attempts > 0 && (
             <button
@@ -277,24 +336,36 @@ function ActionButton({
   onClick,
   shortcut,
   emphasis = false,
+  price = null,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   shortcut: string;
   emphasis?: boolean;
+  /** The size, on its own line. Null for actions that do not have one. */
+  price?: string | null;
 }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        "rounded-lg px-6 py-3 text-base transition-colors",
+        // Flex column so a button with a size under it and a button without
+        // one still centre their labels against each other; the row stretches
+        // them to a common height on its own.
+        "flex flex-col justify-center rounded-lg px-6 py-2.5 transition-colors",
         emphasis
           ? "bg-felt text-ink hover:bg-felt/80"
           : "border border-line bg-raised text-ink hover:bg-line",
       )}
     >
-      {children}
-      <span className="ml-2 font-mono text-xs text-muted">{shortcut}</span>
+      <span className="flex items-center gap-2">
+        <span className="text-base">{children}</span>
+        <span className="font-mono text-xs text-muted">{shortcut}</span>
+      </span>
+      {/* The size sits under the action rather than inside the label, so the
+          button still reads as one word at a glance and the price is there
+          when you look for it. */}
+      {price && <span className="mt-0.5 block font-mono text-xs text-muted">{price}</span>}
     </button>
   );
 }

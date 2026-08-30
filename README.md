@@ -10,7 +10,7 @@
 [![React](https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Tailwind](https://img.shields.io/badge/Tailwind-3-38bdf8?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
-[![Tests](https://img.shields.io/badge/tests-298-3fb950?style=flat-square)](#correctness)
+[![Tests](https://img.shields.io/badge/tests-334-3fb950?style=flat-square)](#correctness)
 
 </div>
 
@@ -23,6 +23,12 @@ No signup, no backend. Open the link and you are in it.
 
 **Three modes.** Opening (five seats, four stack depths), facing a raise (all fifteen
 opener and defender pairs, 3-bet or call or fold), and push/fold (heads up, 2bb to 20bb).
+
+Every hand is drawn as a seat map, because position is a spatial fact. "UTG, HJ fold,
+action on you" is a sentence you have to decode; a table with two seats greyed out and
+three still live between you and the blinds is the same information in the shape you
+already see it in. The chips in front of each seat are on it, so the pot and the price are
+part of the picture rather than something to work out.
 
 ## What it is not
 
@@ -40,6 +46,20 @@ The 100bb charts are **baseline data**: conventional ranges, written to be close
 consensus and internally consistent. Not solver output, and never described as such.
 
 The push/fold charts were **solved here**. Nothing in them was chosen by a person.
+
+Sizes are baseline too, and generated from two rules rather than typed out per spot: opens
+are flat in big blinds and larger from the small blind, and a 3-bet is 3x the open in
+position or 4x out of it. That is enough to land on the sizes these spots are conventionally
+played at, and a rule that reproduces eighty numbers is easier to keep honest than eighty
+numbers are. Which side of the opener you are on comes from the postflop seat order, so the
+big blind 3-bets *smaller* against a small blind open than against anyone else, because it
+is the one spot where the big blind has position.
+
+Pot odds are quoted in exactly one place, the all-in spot, because that is the only one
+where they are the whole answer: no later streets, so the price of the call is the price of
+the hand. The percentage on that screen is computed from the chips on the table, and it
+comes out equal to the (S−1)/2S threshold the solver derived independently from the payoffs.
+A test holds the two together at every stack depth.
 
 ## The solver
 
@@ -122,7 +142,7 @@ come back out as `22+, A2s+, K3s+` like every other chart in the project.
 
 ## Correctness
 
-`npm test` runs 298 cases. The ones doing real work:
+`npm test` runs 334 cases. The ones doing real work:
 
 - **Always giving one answer scores that action's frequency.** Answer "raise" to every hand
   and your accuracy in a spot has to converge on how often that spot's chart says to raise.
@@ -133,6 +153,13 @@ come back out as `22+, A2s+, K3s+` like every other chart in the project.
   make pairs 7.7% of hands instead of 5.9%, teaching a distorted sense of how often spots
   come up. The deal draws real cards and the test asserts the resulting pair rate.
 - **The published push/fold charts are unexploitable**, recomputed from the matrix.
+- **The price on the screen is the price the solver solved against.** The pot odds shown
+  next to the call button come from the chips on the table; the solver's calling threshold
+  comes from the payoff algebra. Same number, two derivations, checked against each other at
+  every one of the nineteen depths.
+- **The postflop seat order is a rearrangement of the preflop one**, not a second list of
+  seats. A seat missing from it would come back as index −1, which compares as "acts first"
+  and would quietly make that seat out of position against the entire table.
 - **3-bet and call ranges never overlap** in any of the fifteen defending spots. They are
   written disjoint rather than resolved by precedence, so an accidental overlap is a
   failure instead of a silent win for whichever range was consulted first.
@@ -153,6 +180,8 @@ src/lib/combos.ts       the 1326 combinations, and blocker bookkeeping
 src/lib/pushfold.ts     the game model, fictitious play, exploitability
 src/lib/charts/         range data; pushfold.generated.ts is solver output
 src/lib/drill.ts        spot generation and scoring
+src/lib/sizing.ts       open and 3-bet sizes, from two rules
+src/lib/table.ts        who is sitting where, what they put in, what it costs
 ```
 
 ## Running it
