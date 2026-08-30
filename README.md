@@ -10,7 +10,7 @@
 [![React](https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Tailwind](https://img.shields.io/badge/Tailwind-3-38bdf8?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
-[![Tests](https://img.shields.io/badge/tests-393-3fb950?style=flat-square)](#correctness)
+[![Tests](https://img.shields.io/badge/tests-436-3fb950?style=flat-square)](#correctness)
 
 </div>
 
@@ -109,7 +109,7 @@ of hands, because a third of the pot is worth less than the half blind you save.
 the relationship that holds everywhere else: at four blinds it is putting in three to win
 five, while the shove risks a whole stack to pick up one blind of dead money.
 
-## The river solver
+## The postflop solver
 
 Preflop is not the interesting part of poker, and the trainer is honest that most of its
 preflop data was written rather than computed. `src/lib/solver/` is the start of fixing
@@ -148,10 +148,46 @@ quadratic version, on four boards chosen to be awkward: one with a flush live, o
 the board is a royal flush and every hand ties, one that is quads with only a kicker to
 separate hands, and one ordinary one.
 
-The turn is the next phase, and it is where approximation becomes necessary — 48 river
-subgames under every turn iteration. The plan for it, including which abstractions are
-allowed and which would quietly destroy blockers, is in
-[docs/postflop-solver.md](docs/postflop-solver.md).
+### The turn, and what abstraction actually buys
+
+The turn is the same engine plus a chance layer: bet, then one of 48 rivers, then bet
+again. It solves exactly too — 0.030% of pot on `Ks Jc 9h 7d`, about eight seconds, 21 MB.
+Two details had to be right and both are the kind that fail silently. The hand index space
+does not change when the river lands (hands holding that card get zero reach and a sentinel
+rank, rather than the whole set being renumbered 48 times per chance node). And the chance
+weight is **1/44, not 1/48** — the dealer draws from 48 cards but four of them are already
+in the two players' hands, and getting that wrong would misprice every decision to see a
+card against every decision to fold, while still converging perfectly to the wrong game.
+
+Then the part this was all built for: **what does bucketing hands together cost, and what
+does it save?** Every abstracted solve is graded in the full game, with the best response
+free to exploit the fact that hands sharing a bucket were forced to play alike.
+
+| | memory | time | exploitability |
+| --- | --- | --- | --- |
+| exact | 20.9 MB | 10.1s | 0.030% |
+| river buckets, K=64 | 1.3 MB | 8.3s | 0.204% |
+| river buckets, K=4 | 0.2 MB | 8.4s | 3.418% |
+
+**A hundredfold memory reduction and the clock does not move.** That was not the expected
+result. In a vector solver the per-iteration cost is the terminal sweeps and the reach
+propagation, both O(hands) regardless of how many buckets the strategy is stored in — the
+showdown still has to know which 1128 hands beat which, because card removal is per hand
+and always will be. Abstraction saved time in the regime the literature came from, where
+CFR samples one history at a time. It does not transfer, which is in retrospect why no
+modern postflop solver uses card abstraction at all.
+
+The metric comparison came out with a wrinkle too. Clustering on the whole equity
+distribution under earth mover's distance beats bucketing on average equity by 5x to 10x
+once there are 32 or more buckets — at K=64 it compresses 317 combos into 64 strategies for
+0.04% of pot. Below K=16 the naive scalar wins, because a coarse abstraction's one job is
+to get the strength ordering roughly right and an equal-frequency split does that by
+construction. And the sorted-distribution clustering reaches a distortion of 0.00005 at
+K=128 while being *more* exploitable there than at K=64: **optimising a metric well is not
+the same as it being the right metric.**
+
+Full numbers, including why k-means needs restarts before a sweep across K means anything,
+are in [docs/postflop-solver.md](docs/postflop-solver.md).
 
 ## The equity engine
 
@@ -186,7 +222,7 @@ come back out as `22+, A2s+, K3s+` like every other chart in the project.
 
 ## Correctness
 
-`npm test` runs 393 cases. The ones doing real work:
+`npm test` runs 436 cases. The ones doing real work:
 
 - **Always giving one answer scores that action's frequency.** Answer "raise" to every hand
   and your accuracy in a spot has to converge on how often that spot's chart says to raise.
@@ -201,6 +237,10 @@ come back out as `22+, A2s+, K3s+` like every other chart in the project.
   next to the call button come from the chips on the table; the solver's calling threshold
   comes from the payoff algebra. Same number, two derivations, checked against each other at
   every one of the nineteen depths.
+- **A turn where neither player may bet is worth exactly nothing**, to twelve decimal
+  places. It is the cheapest possible check on the chance node: the wrong weight, the wrong
+  hands masked, or the dead hands not subtracted back out would all still converge, just to
+  a different game.
 - **The postflop seat order is a rearrangement of the preflop one**, not a second list of
   seats. A seat missing from it would come back as index −1, which compares as "acts first"
   and would quietly make that seat out of position against the entire table.
@@ -229,7 +269,8 @@ src/lib/charts/         range data; pushfold.generated.ts is solver output
 src/lib/drill.ts        spot generation and scoring
 src/lib/sizing.ts       open and 3-bet sizes, from two rules
 src/lib/table.ts        who is sitting where, what they put in, what it costs
-src/lib/solver/         the postflop solver: tree, terminals, discounted CFR
+src/lib/solver/         the postflop solver: tree, terminals, discounted CFR,
+                        chance nodes for the turn, and card abstraction
 ```
 
 ## Running it

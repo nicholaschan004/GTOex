@@ -16,9 +16,25 @@
  * in a browser tab and one that does not.
  */
 
-import { CARD_COUNT, evaluate7, intToCard } from "../equity";
+import { CARD_COUNT, combosOfClass, evaluate7, intToCard } from "../equity";
+import type { HandClass } from "../cards";
 
-export interface HandSet {
+/**
+ * Everything a showdown needs to know: how strong each hand is and what order
+ * that puts them in.
+ *
+ * Split out from `HandSet` because a turn solve has one hand set and forty
+ * eight of these, one per river card. The hands do not change when the river
+ * lands, only what they are worth.
+ */
+export interface RankView {
+  /** Showdown rank of hand i. Higher beats lower, equal ties. */
+  rank: Float64Array;
+  /** Hand indices sorted weakest first. Ties stay adjacent. */
+  byRank: Int32Array;
+}
+
+export interface HandSet extends RankView {
   /** The board these hands are live on, as packed card integers. */
   board: readonly number[];
   /** Number of hands. 1081 on a five card board, 1128 on a four card one. */
@@ -27,15 +43,6 @@ export interface HandSet {
   cardA: Int32Array;
   /** Second card of hand i. */
   cardB: Int32Array;
-  /**
-   * Showdown rank of hand i on this board. Higher beats lower and equal ties.
-   * Only meaningful when the board is complete; on a turn board it is the rank
-   * of the four card board plus the hand, which orders nothing useful and is
-   * not used.
-   */
-  rank: Float64Array;
-  /** Hand indices sorted weakest rank first. Ties stay adjacent. */
-  byRank: Int32Array;
   /** Hands containing card c, for card removal sums. */
   handsWithCard: readonly Int32Array[];
   /** Index of the hand holding cards a and b, or -1 if the board blocks it. */
@@ -116,6 +123,86 @@ export function buildHandSet(board: readonly number[], rankable = board.length =
   };
 }
 
+/** A river card and what every turn hand is worth once it lands. */
+export interface RiverView extends RankView {
+  /** The card that came. */
+  card: number;
+  /** Hands this river makes impossible, because they were holding it. */
+  blocked: Int32Array;
+}
+
+/**
+ * What each of the forty eight possible rivers does to a turn hand set.
+ *
+ * The important decision here is that the INDEX SPACE DOES NOT CHANGE. A turn
+ * board leaves 1128 hands and a river board leaves 1081, and it would be
+ * natural to rebuild the hand set for each river. Doing that would mean
+ * translating every reach vector through a different mapping forty eight times
+ * per chance node, which is both slow and a rich source of off-by-one bugs.
+ *
+ * Instead every hand keeps its turn index for the whole solve. When a river
+ * lands, the hands holding that card do not get renumbered, they get a reach of
+ * zero and a rank of -1, so they sort to the bottom in one group, contribute
+ * nothing to any running sum, and are subtracted back out at the chance node.
+ * The cost is carrying 47 dead entries per river; the saving is that one index
+ * means one meaning everywhere.
+ */
+export function buildRiverViews(hands: HandSet): RiverView[] {
+  if (hands.board.length !== 4) {
+    throw new Error(`River views need a four card board, got ${hands.board.length}`);
+  }
+
+  const onBoard = new Uint8Array(CARD_COUNT);
+  for (const card of hands.board) onBoard[card] = 1;
+
+  const views: RiverView[] = [];
+  const seven = [hands.board[0]!, hands.board[1]!, hands.board[2]!, hands.board[3]!, 0, 0, 0];
+
+  for (let card = 0; card < CARD_COUNT; card++) {
+    if (onBoard[card]) continue;
+    seven[4] = card;
+
+    const rank = new Float64Array(hands.count);
+    const blocked = hands.handsWithCard[card]!;
+    const dead = new Uint8Array(hands.count);
+    for (const hand of blocked) dead[hand] = 1;
+
+    for (let i = 0; i < hands.count; i++) {
+      if (dead[i]) {
+        // Never read: the chance node zeroes these hands' reach and subtracts
+        // their value back out. -1 keeps them in one group at the bottom of the
+        // sort rather than scattered through it.
+        rank[i] = -1;
+        continue;
+      }
+      seven[5] = hands.cardA[i]!;
+      seven[6] = hands.cardB[i]!;
+      rank[i] = evaluate7(seven);
+    }
+
+    const order = Array.from({ length: hands.count }, (_, i) => i).sort(
+      (x, y) => rank[x]! - rank[y]! || x - y,
+    );
+    views.push({ card, rank, byRank: Int32Array.from(order), blocked });
+  }
+
+  return views;
+}
+
+/**
+ * The chance probability of any one river, given that both players are holding
+ * two cards each.
+ *
+ * Fifty two cards, less the four on the turn, less two in each hand, is forty
+ * four. It is the same for every pair of hands that can coexist, which is what
+ * lets the chance node use one constant instead of a per-hand weight, and it is
+ * NOT forty eight: the deck the dealer draws from has forty eight cards, but
+ * four of them are already in front of the two players.
+ */
+export function riverChanceWeight(boardLength: number): number {
+  return 1 / (52 - boardLength - 4);
+}
+
 /**
  * Weights for every hand in the set, from a set of hand classes.
  *
@@ -132,6 +219,29 @@ export function weightsFromCombos(
   for (const [a, b] of combos) {
     const index = hands.indexOf(a, b);
     if (index >= 0) out[index] = weight;
+  }
+  return out;
+}
+
+/**
+ * A preflop range, on a board.
+ *
+ * The chart data this project already has is written in hand classes, and the
+ * solver speaks combinations, so this is the join between the two halves of the
+ * repo: a big blind defending range becomes 300-odd specific holdings once the
+ * board has taken some of the cards away.
+ */
+export function weightsFromClasses(
+  hands: HandSet,
+  classes: Iterable<HandClass>,
+  weight = 1,
+): Float64Array {
+  const out = new Float64Array(hands.count);
+  for (const hand of classes) {
+    for (const [a, b] of combosOfClass(hand)) {
+      const index = hands.indexOf(a, b);
+      if (index >= 0) out[index] = weight;
+    }
   }
   return out;
 }

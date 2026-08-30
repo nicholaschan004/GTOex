@@ -30,6 +30,18 @@ export interface PlayerNode {
   actions: Action[];
   children: TreeNode[];
   /**
+   * Which betting round this node belongs to: 0 is the first street the tree
+   * covers, 1 the one after it. Abstraction is applied per street, so the
+   * solver has to be able to tell a turn decision from a river one.
+   */
+  street: number;
+  /**
+   * Which chance branch this node sits under, or -1 on the first street. Two
+   * river nodes under different cards are different decisions and can be
+   * abstracted differently, so the solver has to be able to tell them apart.
+   */
+  chanceIndex: number;
+  /**
    * Position in `Tree.playerNodes`, so the solver can index its storage with an
    * array rather than a Map. This is walked millions of times per solve and a
    * hash lookup per node per iteration is not free.
@@ -51,7 +63,25 @@ export interface ShowdownNode {
   amount: number;
 }
 
-export type TreeNode = PlayerNode | FoldNode | ShowdownNode;
+/**
+ * A card comes off. One child per river, all structurally identical, because
+ * the betting that follows does not depend on which card it was.
+ *
+ * What DOES depend on the card is who wins at showdown, and that lives in the
+ * rank views the solver carries alongside, not in the tree.
+ */
+export interface ChanceNode {
+  kind: "chance";
+  children: TreeNode[];
+  /**
+   * Probability of any one of them, which is not one over the number of
+   * children: the dealer's deck has more cards in it than the players can
+   * actually see come. See `riverChanceWeight`.
+   */
+  weight: number;
+}
+
+export type TreeNode = PlayerNode | FoldNode | ShowdownNode | ChanceNode;
 
 export interface BettingConfig {
   /** Money already in the middle before this street. Belongs to neither player. */
@@ -89,7 +119,18 @@ export interface Tree {
   config: BettingConfig;
   /** Every player node, in the order they were created. */
   playerNodes: PlayerNode[];
+  /** How many betting rounds the tree covers. One for a river solve, two for a turn. */
+  streets: number;
 }
+
+/**
+ * What happens when nobody has anything left to say on this street.
+ *
+ * A river tree ends in a showdown. A turn tree deals a card and starts another
+ * betting round, which is why this is a hook rather than a hardcoded showdown:
+ * the two streets are the same betting logic and differ only here.
+ */
+export type StreetEnd = (invested: number, amount: number) => TreeNode;
 
 /**
  * Total invested by each player so far in this street.
@@ -104,11 +145,16 @@ function winnings(config: BettingConfig, loserInvested: number): number {
   return config.startingPot / 2 + loserInvested;
 }
 
-export function buildTree(config: BettingConfig): Tree {
+export function buildTree(
+  config: BettingConfig,
+  onStreetEnd: StreetEnd = (_invested, amount) => ({ kind: "showdown", amount }),
+  street = 0,
+  playerNodes: PlayerNode[] = [],
+  chanceIndex = -1,
+): Tree {
   if (config.effectiveStack <= 0) throw new Error("Effective stack must be positive");
   if (config.startingPot <= 0) throw new Error("Starting pot must be positive");
 
-  const playerNodes: PlayerNode[] = [];
 
   /**
    * @param player     who is to act
@@ -145,7 +191,7 @@ export function buildTree(config: BettingConfig): Tree {
     if (toCall === 0) {
       // Nothing to call: check, or open the betting.
       if (checked) {
-        add({ kind: "check", to: mine }, { kind: "showdown", amount: winnings(config, mine) });
+        add({ kind: "check", to: mine }, onStreetEnd(mine, winnings(config, mine)));
       } else {
         add({ kind: "check", to: mine }, build(opponent, invested, betsLeft, true));
       }
@@ -159,7 +205,7 @@ export function buildTree(config: BettingConfig): Tree {
       // builder is reused for the turn it becomes the river chance node, which
       // is why the amount is computed here rather than assumed downstream.
       const called = Math.min(theirs, config.effectiveStack);
-      add({ kind: "call", to: called }, { kind: "showdown", amount: winnings(config, called) });
+      add({ kind: "call", to: called }, onStreetEnd(called, winnings(config, called)));
     }
 
     // Aggressive actions, if the stack and the raise cap allow any.
@@ -196,24 +242,104 @@ export function buildTree(config: BettingConfig): Tree {
       }
     }
 
-    const node: PlayerNode = { kind: "player", player, actions, children, id: playerNodes.length };
+    const node: PlayerNode = {
+      kind: "player",
+      player,
+      actions,
+      children,
+      street,
+      chanceIndex,
+      id: playerNodes.length,
+    };
     playerNodes.push(node);
     return node;
   }
 
   const root = build(OOP, [0, 0], config.maxBets, false);
-  return { root, config, playerNodes };
+  return { root, config, playerNodes, streets: street + 1 };
+}
+
+/**
+ * Two streets: a turn betting round, then a river card, then another.
+ *
+ * The pot and the stacks carry across, and that is the whole of the accounting.
+ * If the turn puts `i` in from each player, the river starts with a pot of
+ * `startingPot + 2i` and `effectiveStack - i` behind, and the river's own
+ * payoff formula then produces exactly the number the two street version
+ * needs. Worth checking rather than trusting: the winner of a river showdown
+ * takes `(P + 2i) / 2 + r`, which is `P/2 + i + r`, which is what it is owed
+ * once both players have been shifted by half the dead money.
+ *
+ * A turn line that gets both players all in has no river betting left, so the
+ * chance node's children are bare showdowns. They still hang off the chance
+ * node, because which hand wins still depends on the card.
+ */
+export function buildTurnTree(
+  turn: BettingConfig,
+  river: Omit<BettingConfig, "startingPot" | "effectiveStack">,
+  riverCount: number,
+  chanceWeight: number,
+): Tree {
+  const playerNodes: PlayerNode[] = [];
+
+  const dealTheRiver: StreetEnd = (invested, amount) => {
+    const behind = turn.effectiveStack - invested;
+    const children: TreeNode[] = [];
+
+    for (let i = 0; i < riverCount; i++) {
+      if (behind <= 0) {
+        children.push({ kind: "showdown", amount });
+        continue;
+      }
+      children.push(
+        buildTree(
+          { ...river, startingPot: turn.startingPot + 2 * invested, effectiveStack: behind },
+          (_i, riverAmount) => ({ kind: "showdown", amount: riverAmount }),
+          1,
+          playerNodes,
+          i,
+        ).root,
+      );
+    }
+
+    return { kind: "chance", children, weight: chanceWeight };
+  };
+
+  const tree = buildTree(turn, dealTheRiver, 0, playerNodes);
+  return { ...tree, streets: 2 };
 }
 
 /** Every node in the tree, for sizing storage and for tests. */
 export function walk(node: TreeNode, visit: (node: TreeNode) => void): void {
   visit(node);
-  if (node.kind === "player") for (const child of node.children) walk(child, visit);
+  if (node.kind === "player" || node.kind === "chance") {
+    for (const child of node.children) walk(child, visit);
+  }
 }
 
-export function countNodes(tree: Tree): { player: number; terminal: number } {
+export function countNodes(tree: Tree): { player: number; chance: number; terminal: number } {
   let player = 0;
+  let chance = 0;
   let terminal = 0;
-  walk(tree.root, (node) => (node.kind === "player" ? player++ : terminal++));
-  return { player, terminal };
+  walk(tree.root, (node) => {
+    if (node.kind === "player") player++;
+    else if (node.kind === "chance") chance++;
+    else terminal++;
+  });
+  return { player, chance, terminal };
+}
+
+/** The most actions any one node offers, for sizing pooled scratch buffers. */
+export function widestNode(tree: Tree): number {
+  let widest = 1;
+  for (const node of tree.playerNodes) widest = Math.max(widest, node.actions.length);
+  return widest;
+}
+
+/** How deep the tree goes, counting chance nodes, for the same reason. */
+export function maxDepth(node: TreeNode, depth = 0): number {
+  if (node.kind !== "player" && node.kind !== "chance") return depth;
+  let deepest = depth;
+  for (const child of node.children) deepest = Math.max(deepest, maxDepth(child, depth + 1));
+  return deepest;
 }

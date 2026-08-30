@@ -82,6 +82,8 @@ function polarisedTree(): { tree: Tree; root: PlayerNode; response: PlayerNode }
     kind: "player",
     player: IP,
     id: 1,
+    street: 0,
+    chanceIndex: -1,
     actions: [
       { kind: "fold", to: 0 },
       { kind: "call", to: 100 },
@@ -95,6 +97,8 @@ function polarisedTree(): { tree: Tree; root: PlayerNode; response: PlayerNode }
     kind: "player",
     player: OOP,
     id: 0,
+    street: 0,
+    chanceIndex: -1,
     actions: [
       { kind: "check", to: 0 },
       { kind: "bet", to: 100 },
@@ -106,6 +110,7 @@ function polarisedTree(): { tree: Tree; root: PlayerNode; response: PlayerNode }
       root,
       config: { ...DEFAULT_BETTING, startingPot: 100, effectiveStack: 100 },
       playerNodes: [root, response],
+      streets: 1,
     },
     root,
     response,

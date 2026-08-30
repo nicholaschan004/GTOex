@@ -134,11 +134,32 @@ approximation, and the one below.
 
 Same engine plus a chance layer. A turn subgame is a turn betting round, then one of 48
 river cards, then a river subgame for each. So each iteration costs roughly 48 river
-iterations, which is minutes rather than seconds, but it is still exact within its betting
-abstraction.
+iterations, and the point of building it is **not** that it is the shipping solver. It is
+the ground truth Phase T2 gets measured against.
 
-The point of building this is **not** that it is the shipping solver. The point is that it
-is the ground truth Phase T2 gets measured against.
+Two things had to be got right that a river-only solver never faces.
+
+**The hand set changes and the index space must not.** A turn board leaves 1128 hands, a
+river board 1081. The natural move is to rebuild the hand set per river, which means
+translating every reach vector through a different mapping 48 times per chance node. Every
+hand instead keeps its turn index for the whole solve; when a river lands, the hands
+holding that card are not renumbered, they are given a reach of zero and a rank of −1 so
+they sort into one dead group at the bottom, contribute to no running sum, and are
+subtracted back out at the chance node. The cost is 47 dead entries per river. The saving
+is that one index means one thing everywhere.
+
+**The chance weight is not one over forty eight.** The dealer draws from 48 cards, but four
+of them are already in the two players' hands, so conditional on any pair of hands that can
+coexist there are 44 rivers. It is the same 44 for every such pair, which is what lets the
+chance node use one constant. Using the dealer's count would misprice every decision to see
+a card against every decision to fold now, and it would do it quietly, because the solve
+would still converge — to the wrong game.
+
+Built. On `Ks Jc 9h 7d`, one bet size a street, 1128 hands, 580 decision nodes: **0.030% of
+pot in about eight seconds and 21 MB**. The degenerate version where neither player may bet
+comes out at 3.6e-15 chips per hand, which is the arithmetic check that matters most —
+anything else there would mean the chance node was masking the wrong hands or weighting
+them wrongly.
 
 ### Phase T2: the turn, approximately
 
@@ -192,6 +213,82 @@ Anyone can write "we bucket to approximate". The part worth building is the numb
 Swept across K, that is a curve, and the curve is the answer to "how much does the
 approximation cost". Phase T1 exists to make it measurable.
 
+#### What the measurement said
+
+`scripts/bench-turn.ts`, on a real spot rather than two uniform ranges: the button opens,
+the big blind calls, the turn is `Ks Jc 9h 7d`. 317 combos out of position against 482 in
+position. Every abstracted solve is graded in the **full** game — its strategy expanded back
+over every hand, best response computed with no abstraction at all — so the number includes
+whatever the abstraction gave away.
+
+**Bucketing buys memory, not time.** This is the headline and it was not the expectation.
+
+| | memory | time | exploitability |
+| --- | --- | --- | --- |
+| exact | 20.9 MB | 10.1s | 0.030% |
+| river buckets, K=64 | 1.3 MB | 8.3s | 0.204% |
+| river buckets, K=16 | 0.4 MB | 7.8s | 0.553% |
+| river buckets, K=4 | 0.2 MB | 8.4s | 3.418% |
+
+A hundredfold memory reduction, and the clock does not move. The baseline was measured
+again at the end of the run (11.2s) so that every figure above sits between two readings of
+the same thing; the spread is drift, not signal.
+
+The reason is structural. In a **vector** solver the per-iteration cost is the terminal
+sweeps and the reach propagation, and both are O(hands) no matter how many buckets the
+strategy is stored in — the showdown still has to know which 1128 hands beat which, because
+card removal is per hand and always will be. What shrinks is the regret table. Abstraction
+saved *time* in the regime the literature came from, where CFR samples one history at a
+time and a smaller abstraction means fewer infosets to visit. It does not transfer.
+
+Which is, in retrospect, why no modern postflop solver uses card abstraction at all.
+
+**The distribution metric beats the scalar, but only once there are enough buckets.**
+Exploitability, turn bucketing, same iteration count throughout:
+
+| K | mean equity | sorted, EMD | river profile |
+| --- | --- | --- | --- |
+| 4 | **2.07%** | 6.26% | 2.04% |
+| 8 | 1.57% | 1.80% | **1.44%** |
+| 16 | 1.02% | 1.42% | **0.79%** |
+| 32 | 0.81% | **0.21%** | 0.22% |
+| 64 | 0.43% | **0.04%** | 0.19% |
+| 128 | 0.19% | 0.29% | **0.13%** |
+
+At K=64 the sorted-distribution clustering is within noise of the exact solve: 317 combos
+compressed to 64 strategies for 0.04% of pot. But below K=32 the naive scalar wins, and
+wins clearly at K=4. A coarse abstraction has one job, to get the strength ordering roughly
+right, and a scalar sorted into equal groups does that by construction while k-means spends
+its four clusters on distribution shape.
+
+**Low distortion is not accuracy.** The sorted-distribution clustering reaches a distortion
+of 0.00005 at K=128 — essentially perfect in its own metric — and is *more* exploitable
+there than at K=64. A metric being well optimised says nothing about whether it was the
+right metric.
+
+**Cluster balance matters more than it looks.** k-means minimises distortion and is
+indifferent to lopsidedness, so it leaves one large cluster and splits hairs elsewhere. At
+K=16 its largest bucket holds 39 hands against the equal-frequency split's 20. The biggest
+bucket is where the most hands are being forced to play alike, which is where the
+exploitability comes from.
+
+**Restarts were not optional.** Single-shot k-means produced results non-monotone in K —
+sixteen buckets beating thirty two — which is a fact about seeding, not about abstraction.
+Five restarts keeping the tightest fit removed it. Individual cells in the table above still
+carry seeding noise; the trend is what to read, not any one number.
+
+#### On the claim that the river must not be bucketed
+
+The design above asserted it. Measured, it is real but smaller than the assertion implied:
+river bucketing at K=64 costs 0.17 points of exploitability (0.030% to 0.204%) for a 16x
+memory reduction, which is a trade many people would take. `blockerSpread` reports how much
+hands sharing a bucket disagree about how much opponent range they block — about 2.3% at
+K=64, falling as buckets get finer.
+
+Worth recording separately: against **uniform** ranges that number is exactly zero, because
+every hand then blocks exactly the same weight. Measuring abstraction against uniform ranges
+flatters it, and the first version of this benchmark did exactly that.
+
 ## The other two approximations, which are easy to forget
 
 Card abstraction is the one that gets talked about, and it is usually not the biggest error.
@@ -202,7 +299,9 @@ typically the *larger* of the two errors, so the bet sizes need to be a stated,
 configurable part of the game, not a constant buried in the tree builder.
 
 **Depth limiting.** Instead of solving all 48 rivers under every turn iteration, stop at
-the river and substitute an estimated value. Done naively this is unsound: a fixed estimate
+the river and substitute an estimated value. After the T2 measurement this is no longer the
+escape hatch, it is the main road: it is the only one of the three that touches the term
+that actually dominates the clock. Done naively this is unsound: a fixed estimate
 assumes the opponent plays a fixed way, and the opponent does not have to. [Brown, Sandholm
 and Amos, *Depth-Limited Solving for Imperfect-Information Games*, NeurIPS
 2018](https://arxiv.org/pdf/1805.08195) fix that by letting the opponent *choose* among
@@ -210,9 +309,8 @@ several continuation strategies at the depth limit, which forces the solution to
 to all of them. That paper's agent, Modicum, beat two prior top agents on a 4-core CPU,
 against DeepStack's million-plus core hours.
 
-That is the escape hatch if the full turn solve is too slow to ship. It is deliberately
-scheduled after the exact version, because it is another approximation and it needs the
-same treatment as bucketing: measured, not assumed.
+It is deliberately scheduled after the exact version, because it is another approximation
+and it needs the same treatment bucketing got: measured, not assumed.
 
 ## Order of work
 
@@ -220,13 +318,19 @@ same treatment as bucketing: measured, not assumed.
    **Done.** `src/lib/solver/`. Checked against the textbook polarised game, whose
    equilibrium is known on paper, and against a quadratic reference implementation of both
    terminal evaluations.
-2. **Phase T1** — turn with all 48 rivers solved. Slow, exact, the yardstick. Reuses the
-   whole of Phase R and adds one chance layer: a call on the turn leads to a river card
-   rather than straight to a showdown, which is why the tree builder computes the payoff at
-   that point instead of assuming the street is over.
-3. **Phase T2** — turn with clustered hands. Measured against T1 across K.
-4. **Phase D** — depth-limited turn with multiple opponent continuations, if T1 and T2 are
-   both too slow for the browser.
+2. ~~**Phase T1** — turn with all 48 rivers solved.~~ **Done.** `src/lib/solver/turn.ts`
+   plus a chance layer in the tree and the CFR engine. 0.030% of pot, 8s, 21 MB.
+3. ~~**Phase T2** — turn with clustered hands, measured against T1 across K.~~ **Done.**
+   `src/lib/solver/abstraction.ts`, swept by `scripts/bench-turn.ts`. The answer was not
+   the expected one: abstraction buys memory and not time, for the structural reason above.
+4. **Phase D** — depth-limited solving with multiple opponent continuations at the leaf
+   (Brown, Sandholm and Amos). Now the clear next step rather than a fallback, because the
+   measurement showed card abstraction cannot buy the time and depth limiting is what
+   attacks the actual cost: 48 river subgames under every turn iteration.
+5. **Phase A** — sweep the betting abstraction the same way the card abstraction was swept.
+   The tree already takes sizes as configuration, and the literature's claim that action
+   abstraction is the larger error is currently the one unmeasured assertion in this
+   document.
 
 Nothing here goes near the trainer's user-facing surfaces until it can state its own
 exploitability, for the same reason the preflop charts say on every screen which of them

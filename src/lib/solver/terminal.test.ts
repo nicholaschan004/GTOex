@@ -79,7 +79,7 @@ describe("terminal evaluation matches the quadratic reference", () => {
     it(`shows down correctly on ${text}`, () => {
       const reach = randomReach(hands.count, 11, 0.3);
       const fast = new Float64Array(hands.count);
-      showdownValues(hands, reach, 12, fast, terminalScratch());
+      showdownValues(hands, hands, reach, 12, fast, terminalScratch());
       const slow = bruteShowdown(hands, reach, 12);
 
       for (let i = 0; i < hands.count; i++) expect(fast[i]!).toBeCloseTo(slow[i]!, 9);
@@ -92,7 +92,7 @@ describe("terminal evaluation matches the quadratic reference", () => {
     reach[500] = 1;
 
     const fast = new Float64Array(hands.count);
-    showdownValues(hands, reach, 1, fast, terminalScratch());
+    showdownValues(hands, hands, reach, 1, fast, terminalScratch());
     const slow = bruteShowdown(hands, reach, 1);
     for (let i = 0; i < hands.count; i++) expect(fast[i]!).toBeCloseTo(slow[i]!, 9);
   });
@@ -105,7 +105,7 @@ describe("terminal evaluation matches the quadratic reference", () => {
     foldValues(hands, empty, 10, out, terminalScratch());
     expect([...out].every((value) => value === 0)).toBe(true);
 
-    showdownValues(hands, empty, 10, out, terminalScratch());
+    showdownValues(hands, hands, empty, 10, out, terminalScratch());
     expect([...out].every((value) => value === 0)).toBe(true);
   });
 });
@@ -121,7 +121,7 @@ describe("showdown ties", () => {
     const reach = randomReach(hands.count, 3);
     const out = new Float64Array(hands.count);
 
-    showdownValues(hands, reach, 100, out, terminalScratch());
+    showdownValues(hands, hands, reach, 100, out, terminalScratch());
     for (let i = 0; i < hands.count; i++) expect(out[i]!).toBeCloseTo(0, 9);
   });
 

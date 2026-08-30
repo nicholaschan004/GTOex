@@ -192,7 +192,7 @@ describe("payoffs", () => {
   it("never pay a negative amount", () => {
     const tree = buildTree(config());
     walk(tree.root, (node) => {
-      if (node.kind === "player") return;
+      if (node.kind === "player" || node.kind === "chance") return;
       expect(node.amount).toBeGreaterThan(0);
     });
   });

@@ -14,7 +14,7 @@
  */
 
 import { CARD_COUNT } from "../equity";
-import type { HandSet } from "./hands";
+import type { HandSet, RankView } from "./hands";
 
 /**
  * Value of a fold, for every hero hand.
@@ -70,17 +70,21 @@ export function foldValues(
  * `amount` is half the final pot: at a showdown both players have contributed
  * equally, so winning gains exactly what losing costs.
  *
- * The sort itself is not here. It happens once when the hand set is built,
- * because the board does not change during a solve.
+ * The sort itself is not here. It happens once when the ranks are built,
+ * because the board does not change during a solve. `view` is what separates
+ * the two: the hands are fixed for a whole turn solve, but what they are worth
+ * changes with every river, so the ranks and their order arrive separately.
  */
 export function showdownValues(
   hands: HandSet,
+  view: RankView,
   opponentReach: Float64Array,
   amount: number,
   out: Float64Array,
   scratch: Float64Array,
 ): void {
-  const { count, cardA, cardB, rank, byRank } = hands;
+  const { count, cardA, cardB } = hands;
+  const { rank, byRank } = view;
 
   out.fill(0);
   scratch.fill(0);
