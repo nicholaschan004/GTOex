@@ -103,7 +103,7 @@ export function Drill() {
   return (
     <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-5 px-4 py-6">
       <header className="flex items-baseline justify-between gap-4">
-        <h1 className="text-xl font-semibold tracking-tight text-ink">GTOex</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-ink">GTO Trainer</h1>
         <div className="flex items-center gap-4 font-mono text-sm text-muted">
           {/* An unattempted session shows nothing here rather than 0%, which
               would read as a score you had earned. */}

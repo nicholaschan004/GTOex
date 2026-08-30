@@ -1,10 +1,10 @@
 <div align="center">
 
-# GTOex
+# GTO Trainer
 
 *A preflop poker trainer that computes its own answers*
 
-**[gtoex.vercel.app](https://gtoex.vercel.app)**
+**[gtotrainer.vercel.app](https://gtotrainer.vercel.app)**
 
 [![Vite](https://img.shields.io/badge/Vite-6-646cff?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
 [![React](https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=white)](https://react.dev)

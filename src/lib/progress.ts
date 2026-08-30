@@ -10,6 +10,13 @@
  * seat, a stack depth and who raised. `drill.ts` owns what those keys mean.
  */
 
+/**
+ * Deliberately still says "gtoex" after the rename to GTO Trainer.
+ *
+ * The key is invisible to users, and changing it would silently discard the
+ * accuracy history of anyone who had already used the site. A tidier string is
+ * not worth throwing away someone's drill record, so this stays as it is.
+ */
 const STORAGE_KEY = "gtoex:progress:v2";
 
 export interface Tally {
