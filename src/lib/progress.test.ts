@@ -6,7 +6,7 @@ import {
   readProgress,
   recordAnswer,
   totals,
-  weakestPosition,
+  weakestSpots,
   writeProgress,
 } from "./progress";
 
@@ -25,6 +25,8 @@ function installStorage(): Map<string, string> {
   return store;
 }
 
+const KEY = "gtoex:progress:v2";
+
 let store: Map<string, string>;
 beforeEach(() => {
   store = installStorage();
@@ -33,12 +35,25 @@ beforeEach(() => {
 describe("round trip", () => {
   it("survives a write and read", () => {
     let progress = emptyProgress();
-    progress = recordAnswer(progress, "BTN", true);
-    progress = recordAnswer(progress, "BTN", false);
+    progress = recordAnswer(progress, "rfi:100:BTN", "BTN open, 100bb", true);
+    progress = recordAnswer(progress, "rfi:100:BTN", "BTN open, 100bb", false);
     writeProgress(progress);
 
     const restored = readProgress();
-    expect(restored.byPosition.BTN).toEqual({ attempts: 2, correct: 1 });
+    expect(restored.spots["rfi:100:BTN"]).toEqual({
+      attempts: 2,
+      correct: 1,
+      label: "BTN open, 100bb",
+    });
+  });
+
+  it("keeps different spots apart", () => {
+    let progress = emptyProgress();
+    progress = recordAnswer(progress, "rfi:20:BTN", "BTN open, 20bb", true);
+    progress = recordAnswer(progress, "rfi:200:BTN", "BTN open, 200bb", false);
+    expect(totals(progress)).toEqual({ attempts: 2, correct: 1 });
+    expect(progress.spots["rfi:20:BTN"]!.correct).toBe(1);
+    expect(progress.spots["rfi:200:BTN"]!.correct).toBe(0);
   });
 
   it("starts empty when nothing is stored", () => {
@@ -49,13 +64,13 @@ describe("round trip", () => {
 describe("streaks", () => {
   it("counts up on correct and resets on wrong", () => {
     let progress = emptyProgress();
-    progress = recordAnswer(progress, "CO", true);
-    progress = recordAnswer(progress, "CO", true);
-    progress = recordAnswer(progress, "CO", true);
+    for (let i = 0; i < 3; i++) {
+      progress = recordAnswer(progress, "pf:SB", "SB shove", true);
+    }
     expect(progress.streak).toBe(3);
     expect(progress.bestStreak).toBe(3);
 
-    progress = recordAnswer(progress, "CO", false);
+    progress = recordAnswer(progress, "pf:SB", "SB shove", false);
     expect(progress.streak).toBe(0);
     expect(progress.bestStreak).toBe(3);
   });
@@ -63,73 +78,89 @@ describe("streaks", () => {
 
 describe("corrupt storage", () => {
   it("shrugs off unparseable json", () => {
-    store.set("gtoex:progress:v1", "{not json");
+    store.set(KEY, "{not json");
     expect(readProgress()).toEqual(emptyProgress());
   });
 
-  it("discards an unknown schema version", () => {
-    store.set("gtoex:progress:v1", JSON.stringify({ version: 99, streak: 5 }));
+  it("discards an older schema version", () => {
+    // v1 was keyed by position, so its shape cannot be read into v2.
+    store.set(KEY, JSON.stringify({ version: 1, byPosition: {}, streak: 9 }));
     expect(readProgress()).toEqual(emptyProgress());
   });
 
   it("clamps a correct count above attempts, so accuracy cannot exceed 100", () => {
     store.set(
-      "gtoex:progress:v1",
+      KEY,
       JSON.stringify({
-        version: 1,
-        byPosition: { UTG: { attempts: 3, correct: 99 } },
+        version: 2,
+        spots: { "rfi:100:UTG": { attempts: 3, correct: 99, label: "UTG" } },
         streak: 0,
         bestStreak: 0,
       }),
     );
     const restored = readProgress();
-    expect(restored.byPosition.UTG).toEqual({ attempts: 3, correct: 3 });
-    expect(accuracy(restored.byPosition.UTG)).toBe(100);
+    expect(restored.spots["rfi:100:UTG"]!.correct).toBe(3);
+    expect(accuracy(restored.spots["rfi:100:UTG"]!)).toBe(100);
   });
 
   it("rejects negative numbers", () => {
     store.set(
-      "gtoex:progress:v1",
-      JSON.stringify({ version: 1, byPosition: {}, streak: -4, bestStreak: -1 }),
+      KEY,
+      JSON.stringify({ version: 2, spots: {}, streak: -4, bestStreak: -1 }),
     );
     const restored = readProgress();
     expect(restored.streak).toBe(0);
     expect(restored.bestStreak).toBe(0);
   });
+
+  it("falls back to the key when a label is missing", () => {
+    store.set(
+      KEY,
+      JSON.stringify({
+        version: 2,
+        spots: { "pf:BB": { attempts: 5, correct: 2 } },
+        streak: 0,
+        bestStreak: 0,
+      }),
+    );
+    expect(readProgress().spots["pf:BB"]!.label).toBe("pf:BB");
+  });
 });
 
 describe("summaries", () => {
-  it("totals across every seat", () => {
-    let progress = emptyProgress();
-    progress = recordAnswer(progress, "UTG", true);
-    progress = recordAnswer(progress, "BTN", false);
-    expect(totals(progress)).toEqual({ attempts: 2, correct: 1 });
-  });
-
   it("has no accuracy before the first answer", () => {
     expect(accuracy({ attempts: 0, correct: 0 })).toBeNull();
   });
 
-  it("withholds a weakest seat until the sample is big enough", () => {
+  it("withholds a weakest spot until the sample is big enough", () => {
     let progress = emptyProgress();
-    progress = recordAnswer(progress, "UTG", false);
-    expect(weakestPosition(progress)).toBeNull();
+    progress = recordAnswer(progress, "rfi:100:UTG", "UTG open, 100bb", false);
+    expect(weakestSpots(progress)).toEqual([]);
 
-    for (let i = 0; i < 5; i++) progress = recordAnswer(progress, "UTG", false);
-    expect(weakestPosition(progress)).toBe("UTG");
+    for (let i = 0; i < 5; i++) {
+      progress = recordAnswer(progress, "rfi:100:UTG", "UTG open, 100bb", false);
+    }
+    expect(weakestSpots(progress)[0]?.label).toBe("UTG open, 100bb");
   });
 
-  it("picks the lowest rate among seats that qualify", () => {
+  it("orders the weakest first", () => {
     let progress = emptyProgress();
-    for (let i = 0; i < 10; i++) progress = recordAnswer(progress, "UTG", i < 9);
-    for (let i = 0; i < 10; i++) progress = recordAnswer(progress, "BTN", i < 3);
-    expect(weakestPosition(progress)).toBe("BTN");
+    for (let i = 0; i < 10; i++) {
+      progress = recordAnswer(progress, "a", "spot A", i < 9);
+      progress = recordAnswer(progress, "b", "spot B", i < 3);
+      progress = recordAnswer(progress, "c", "spot C", i < 6);
+    }
+    expect(weakestSpots(progress).map((s) => s.label)).toEqual([
+      "spot B",
+      "spot C",
+      "spot A",
+    ]);
   });
 });
 
 describe("clearProgress", () => {
   it("empties both storage and the returned value", () => {
-    writeProgress(recordAnswer(emptyProgress(), "SB", true));
+    writeProgress(recordAnswer(emptyProgress(), "pf:SB", "SB shove", true));
     expect(clearProgress()).toEqual(emptyProgress());
     expect(readProgress()).toEqual(emptyProgress());
   });

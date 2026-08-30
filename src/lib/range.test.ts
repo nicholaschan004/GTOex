@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RangeSyntaxError, parseRange } from "./range";
+import { RangeSyntaxError, formatRange, parseRange } from "./range";
 import { allHandClasses, comboPercent } from "./cards";
 
 const sorted = (notation: string) => [...parseRange(notation)].sort();
@@ -106,5 +106,48 @@ describe("errors", () => {
 
   it("names the offending token in the message", () => {
     expect(bad("22+, QXs, AKo")).toThrow(/"QXs"/);
+  });
+});
+
+describe("formatRange", () => {
+  const roundTrip = (notation: string) => formatRange(parseRange(notation));
+
+  it("writes the notation it would have parsed", () => {
+    expect(roundTrip("22+")).toBe("22+");
+    expect(roundTrip("QQ+")).toBe("QQ+");
+    expect(roundTrip("99-66")).toBe("99-66");
+    expect(roundTrip("AKs")).toBe("AKs");
+    expect(roundTrip("A9s+")).toBe("A9s+");
+    expect(roundTrip("AJs-A9s")).toBe("AJs-A9s");
+  });
+
+  it("splits a gap into two tokens", () => {
+    expect(roundTrip("AA, QQ")).toBe("AA, QQ");
+    expect(roundTrip("A2s, A5s-A4s")).toBe("A5s-A4s, A2s");
+  });
+
+  it("round trips every chart in the project", () => {
+    const charts = [
+      "22+, A2s+, K9s+, Q9s+, J9s+, T8s+, 98s, 87s, 76s, AJo+, KQo",
+      "22+, A2s+, K2s+, Q4s+, J6s+, T6s+, 95s+, 85s+, 74s+, 64s+, 53s+, 43s, A2o+, K7o+, Q9o+, J9o+, T9o",
+      "TT+, AKs, AKo, AQs, AQo, A5s, A4s, A3s, A2s, K9s, K8s",
+      "44+, A2s+, K9s+, Q9s+, JTs, T9s, ATo+, KQo",
+    ];
+    for (const chart of charts) {
+      expect(parseRange(formatRange(parseRange(chart)))).toEqual(parseRange(chart));
+    }
+  });
+
+  it("round trips every possible single hand", () => {
+    for (const hand of allHandClasses()) {
+      const set = new Set([hand]);
+      expect(parseRange(formatRange(set))).toEqual(set);
+    }
+  });
+
+  it("handles the empty range and the full deck", () => {
+    expect(formatRange(new Set())).toBe("");
+    const everything = new Set(allHandClasses());
+    expect(parseRange(formatRange(everything))).toEqual(everything);
   });
 });

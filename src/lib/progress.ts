@@ -5,32 +5,35 @@
  * the product with your history intact, and there is nothing stored anywhere
  * to leak. The cost is that progress does not follow you between devices,
  * which for a drill tool is the right trade.
+ *
+ * Keyed by an opaque spot key rather than by position, because a spot is now a
+ * seat, a stack depth and who raised. `drill.ts` owns what those keys mean.
  */
 
-import { RFI_POSITIONS, type RfiPosition } from "./positions";
-
-const STORAGE_KEY = "gtoex:progress:v1";
+const STORAGE_KEY = "gtoex:progress:v2";
 
 export interface Tally {
   attempts: number;
   correct: number;
+  /** Human-readable name for the key, so old entries still display. */
+  label: string;
 }
 
 export interface Progress {
-  version: 1;
-  byPosition: Record<RfiPosition, Tally>;
+  version: 2;
+  spots: Record<string, Tally>;
   streak: number;
   bestStreak: number;
 }
 
-function emptyTallies(): Record<RfiPosition, Tally> {
-  return Object.fromEntries(
-    RFI_POSITIONS.map((p) => [p, { attempts: 0, correct: 0 }]),
-  ) as Record<RfiPosition, Tally>;
+export function emptyProgress(): Progress {
+  return { version: 2, spots: {}, streak: 0, bestStreak: 0 };
 }
 
-export function emptyProgress(): Progress {
-  return { version: 1, byPosition: emptyTallies(), streak: 0, bestStreak: 0 };
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : fallback;
 }
 
 /**
@@ -50,34 +53,28 @@ export function readProgress(): Progress {
     if (typeof parsed !== "object" || parsed === null) return emptyProgress();
 
     const candidate = parsed as Partial<Progress>;
-    if (candidate.version !== 1) return emptyProgress();
+    if (candidate.version !== 2) return emptyProgress();
 
     const restored = emptyProgress();
     restored.streak = numberOr(candidate.streak, 0);
     restored.bestStreak = numberOr(candidate.bestStreak, 0);
 
-    for (const position of RFI_POSITIONS) {
-      const tally = candidate.byPosition?.[position];
-      if (!tally) continue;
+    for (const [key, tally] of Object.entries(candidate.spots ?? {})) {
+      if (!tally || typeof tally !== "object") continue;
       const attempts = numberOr(tally.attempts, 0);
-      const correct = numberOr(tally.correct, 0);
-      // Clamp rather than trust: a corrupted file must not be able to render
-      // an accuracy above 100 percent.
-      restored.byPosition[position] = {
+      if (attempts === 0) continue;
+      restored.spots[key] = {
         attempts,
-        correct: Math.min(correct, attempts),
+        // Clamp rather than trust: a corrupted file must not be able to render
+        // an accuracy above 100 percent.
+        correct: Math.min(numberOr(tally.correct, 0), attempts),
+        label: typeof tally.label === "string" ? tally.label : key,
       };
     }
     return restored;
   } catch {
     return emptyProgress();
   }
-}
-
-function numberOr(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? Math.floor(value)
-    : fallback;
 }
 
 export function writeProgress(progress: Progress): void {
@@ -90,19 +87,21 @@ export function writeProgress(progress: Progress): void {
 
 export function recordAnswer(
   progress: Progress,
-  position: RfiPosition,
+  key: string,
+  label: string,
   correct: boolean,
 ): Progress {
-  const previous = progress.byPosition[position];
+  const previous = progress.spots[key] ?? { attempts: 0, correct: 0, label };
   const streak = correct ? progress.streak + 1 : 0;
 
   return {
-    version: 1,
-    byPosition: {
-      ...progress.byPosition,
-      [position]: {
+    version: 2,
+    spots: {
+      ...progress.spots,
+      [key]: {
         attempts: previous.attempts + 1,
         correct: previous.correct + (correct ? 1 : 0),
+        label,
       },
     },
     streak,
@@ -119,46 +118,40 @@ export function clearProgress(): Progress {
   return emptyProgress();
 }
 
-export function totals(progress: Progress): Tally {
-  return RFI_POSITIONS.reduce<Tally>(
-    (sum, position) => {
-      const tally = progress.byPosition[position];
-      return {
-        attempts: sum.attempts + tally.attempts,
-        correct: sum.correct + tally.correct,
-      };
-    },
+export function totals(progress: Progress): { attempts: number; correct: number } {
+  return Object.values(progress.spots).reduce(
+    (sum, tally) => ({
+      attempts: sum.attempts + tally.attempts,
+      correct: sum.correct + tally.correct,
+    }),
     { attempts: 0, correct: 0 },
   );
 }
 
-export function accuracy(tally: Tally): number | null {
+export function accuracy(tally: { attempts: number; correct: number }): number | null {
   if (tally.attempts === 0) return null;
   return (tally.correct / tally.attempts) * 100;
 }
 
 /**
- * The seat you are worst at, or null while the evidence is too thin.
+ * The spots you are worst at, or an empty list while the evidence is too thin.
  *
- * The minimum sample matters. Calling a seat your weakest after one wrong
+ * The minimum sample matters. Calling a spot your weakest after one wrong
  * answer is noise dressed up as a finding, and a trainer that reports noise
  * teaches you to distrust it.
  */
-export function weakestPosition(
+export function weakestSpots(
   progress: Progress,
+  count = 3,
   minimumAttempts = 5,
-): RfiPosition | null {
-  let worst: RfiPosition | null = null;
-  let worstRate = Infinity;
-
-  for (const position of RFI_POSITIONS) {
-    const tally = progress.byPosition[position];
-    if (tally.attempts < minimumAttempts) continue;
-    const rate = tally.correct / tally.attempts;
-    if (rate < worstRate) {
-      worstRate = rate;
-      worst = position;
-    }
-  }
-  return worst;
+): { label: string; rate: number; attempts: number }[] {
+  return Object.values(progress.spots)
+    .filter((tally) => tally.attempts >= minimumAttempts)
+    .map((tally) => ({
+      label: tally.label,
+      rate: (tally.correct / tally.attempts) * 100,
+      attempts: tally.attempts,
+    }))
+    .sort((a, b) => a.rate - b.rate)
+    .slice(0, count);
 }

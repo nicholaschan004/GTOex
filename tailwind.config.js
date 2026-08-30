@@ -18,6 +18,12 @@ export default {
         felt: "#16352a",
         "felt-rail": "#0e2019",
 
+        // The three actions, as they appear on the range grid. Raise is the
+        // felt green, call is blue, fold is just the empty cell. Distinct in
+        // hue rather than only in lightness, so the shapes stay legible.
+        "zone-raise": "#1f5c43",
+        "zone-call": "#27506b",
+
         ink: "#e8ece9",
         muted: "#8b978f",
 

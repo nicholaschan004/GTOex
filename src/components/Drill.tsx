@@ -1,15 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 import { comboPercent } from "../lib/cards";
 import {
+  DRILL_MODES,
   type Action,
+  type DrillMode,
   type Spot,
   type Verdict,
+  actionLabel,
+  actionsFor,
   dealSpot,
-  foldedBefore,
   judge,
-  rangeForSpot,
+  layersFor,
+  spotHeading,
+  spotKey,
+  spotLabel,
+  spotStory,
 } from "../lib/drill";
-import { POSITION_NAMES } from "../lib/positions";
+import { STACK_DEPTHS, type StackDepth } from "../lib/positions";
 import {
   type Progress,
   accuracy,
@@ -17,34 +24,43 @@ import {
   readProgress,
   recordAnswer,
   totals,
-  weakestPosition,
+  weakestSpots,
   writeProgress,
 } from "../lib/progress";
 import { cn } from "../lib/cn";
 import { PlayingCard } from "./PlayingCard";
 import { RangeGrid } from "./RangeGrid";
 
+const SHORTCUT: Record<Action, string> = { fold: "F", call: "C", raise: "R" };
+
 export function Drill() {
-  const [spot, setSpot] = useState<Spot>(() => dealSpot());
+  const [mode, setMode] = useState<DrillMode>("rfi");
+  const [depth, setDepth] = useState<StackDepth | "any">(100);
+  const [spot, setSpot] = useState<Spot>(() => dealSpot("rfi", { depth: 100 }));
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [progress, setProgress] = useState<Progress>(() => readProgress());
+
+  const nextHand = useCallback(
+    (nextMode = mode, nextDepth = depth) => {
+      setSpot(dealSpot(nextMode, nextDepth === "any" ? {} : { depth: nextDepth }));
+      setVerdict(null);
+    },
+    [depth, mode],
+  );
 
   const answer = useCallback(
     (action: Action) => {
       if (verdict) return;
+      if (!actionsFor(spot).includes(action)) return;
+
       const result = judge(spot, action);
-      const updated = recordAnswer(progress, spot.position, result.correct);
+      const updated = recordAnswer(progress, spotKey(spot), spotLabel(spot), result.correct);
       writeProgress(updated);
       setVerdict(result);
       setProgress(updated);
     },
     [progress, spot, verdict],
   );
-
-  const nextHand = useCallback(() => {
-    setSpot(dealSpot());
-    setVerdict(null);
-  }, []);
 
   // A drill lives or dies on how fast you can answer, so the whole loop is
   // reachable without the mouse.
@@ -55,6 +71,7 @@ export function Drill() {
 
       if (!verdict) {
         if (key === "f") answer("fold");
+        if (key === "c") answer("call");
         if (key === "r") answer("raise");
         return;
       }
@@ -67,24 +84,32 @@ export function Drill() {
     return () => window.removeEventListener("keydown", onKey);
   }, [answer, nextHand, verdict]);
 
-  const range = rangeForSpot(spot);
+  const switchMode = (next: DrillMode) => {
+    setMode(next);
+    nextHand(next, depth);
+  };
+
+  const switchDepth = (next: StackDepth | "any") => {
+    setDepth(next);
+    nextHand(mode, next);
+  };
+
+  const layers = layersFor(spot);
   const overall = totals(progress);
   const overallAccuracy = accuracy(overall);
-  const weakest = weakestPosition(progress);
-  const folded = foldedBefore(spot.position);
+  const weakest = weakestSpots(progress);
+  const bestLayer = layers.find((layer) => layer.action === verdict?.best);
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-6 px-4 py-6">
+    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-5 px-4 py-6">
       <header className="flex items-baseline justify-between gap-4">
         <h1 className="text-xl font-semibold tracking-tight text-ink">GTOex</h1>
-
         <div className="flex items-center gap-4 font-mono text-sm text-muted">
           {/* An unattempted session shows nothing here rather than 0%, which
               would read as a score you had earned. */}
           {overallAccuracy !== null && (
             <span>
-              <span className="text-ink">{overall.correct}</span>/{overall.attempts}
-              {"  "}
+              <span className="text-ink">{overall.correct}</span>/{overall.attempts}{" "}
               {overallAccuracy.toFixed(0)}%
             </span>
           )}
@@ -92,15 +117,36 @@ export function Drill() {
         </div>
       </header>
 
-      <section className="space-y-1 text-center">
-        <p className="text-sm text-muted">
-          {POSITION_NAMES[spot.position]} &middot; {spot.depth}bb &middot; 6 handed
-        </p>
-        <p className="text-sm text-muted">
-          {folded.length === 0
-            ? "You are first to act."
-            : `${folded.join(", ")} ${folded.length === 1 ? "folds" : "fold"}. Action on you.`}
-        </p>
+      <nav className="flex flex-wrap gap-2" aria-label="Drill mode">
+        {DRILL_MODES.map((option) => (
+          <Chip
+            key={option.id}
+            active={mode === option.id}
+            onClick={() => switchMode(option.id)}
+            title={option.blurb}
+          >
+            {option.label}
+          </Chip>
+        ))}
+      </nav>
+
+      {mode === "rfi" && (
+        <nav className="flex flex-wrap items-center gap-2" aria-label="Stack depth">
+          <span className="text-xs text-muted">Stack</span>
+          {STACK_DEPTHS.map((option) => (
+            <Chip key={option} active={depth === option} onClick={() => switchDepth(option)}>
+              {option}bb
+            </Chip>
+          ))}
+          <Chip active={depth === "any"} onClick={() => switchDepth("any")}>
+            Mixed
+          </Chip>
+        </nav>
+      )}
+
+      <section className="space-y-1 pt-2 text-center">
+        <p className="text-sm text-muted">{spotHeading(spot)}</p>
+        <p className="text-sm text-muted">{spotStory(spot)}</p>
       </section>
 
       <div className="flex justify-center gap-3" aria-label="Your hand">
@@ -109,13 +155,17 @@ export function Drill() {
       </div>
 
       {!verdict ? (
-        <div className="flex justify-center gap-3">
-          <ActionButton onClick={() => answer("fold")} shortcut="F">
-            Fold
-          </ActionButton>
-          <ActionButton onClick={() => answer("raise")} shortcut="R" emphasis>
-            Raise
-          </ActionButton>
+        <div className="flex flex-wrap justify-center gap-3">
+          {actionsFor(spot).map((action) => (
+            <ActionButton
+              key={action}
+              onClick={() => answer(action)}
+              shortcut={SHORTCUT[action]}
+              emphasis={action !== "fold"}
+            >
+              {actionLabel(spot, action)}
+            </ActionButton>
+          ))}
         </div>
       ) : (
         <div className="space-y-5">
@@ -131,22 +181,29 @@ export function Drill() {
             </p>
             <p className="text-sm text-muted">
               {spot.hand} is{" "}
-              {verdict.best === "raise" ? "in" : "outside"} the {spot.position}{" "}
-              opening range, so the play is{" "}
-              <span className="text-ink">{verdict.best}</span>.
+              {bestLayer ? (
+                <>
+                  in the <span className="text-ink">{bestLayer.label.toLowerCase()}</span> range
+                </>
+              ) : (
+                "outside every continuing range"
+              )}
+              , so the play is{" "}
+              <span className="text-ink">{actionLabel(spot, verdict.best).toLowerCase()}</span>.
             </p>
           </div>
 
           <div className="space-y-2">
-            <RangeGrid range={range} highlight={spot.hand} />
+            <RangeGrid layers={layers} highlight={spot.hand} />
             <p className="text-center text-xs text-muted">
-              {spot.position} opens {comboPercent(range).toFixed(1)}% of hands.
-              Highlighted cells are opens.
+              {layers
+                .map((layer) => `${layer.label} ${comboPercent(layer.hands).toFixed(1)}%`)
+                .join(" · ")}
             </p>
           </div>
 
           <div className="flex justify-center">
-            <ActionButton onClick={nextHand} shortcut="Enter" emphasis>
+            <ActionButton onClick={() => nextHand()} shortcut="Enter" emphasis>
               Next hand
             </ActionButton>
           </div>
@@ -154,19 +211,24 @@ export function Drill() {
       )}
 
       <footer className="mt-auto space-y-3 border-t border-line pt-4">
-        {weakest && (
-          <p className="text-center text-xs text-muted">
-            Weakest seat so far: <span className="text-ink">{weakest}</span>
-          </p>
+        {weakest.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted">
+            <span>Weakest:</span>
+            {weakest.map((entry) => (
+              <span key={entry.label}>
+                <span className="text-ink">{entry.label}</span> {entry.rate.toFixed(0)}%
+              </span>
+            ))}
+          </div>
         )}
 
         <div className="flex items-center justify-between gap-4 text-xs text-muted">
-          {/* Stated on every screen, not buried in the README. Presenting
-              hand-authored ranges as solved output would be the one thing
-              that makes the whole tool untrustworthy. */}
+          {/* Stated on every screen, not buried in the README, and it changes
+              per mode because only one of these modes was solved. */}
           <p>
-            Baseline charts, not solver output. Conventional 100bb opening
-            ranges, to be replaced by computed ones.
+            {mode === "pushfold"
+              ? "Solved: fictitious play over a computed equity matrix, verified unexploitable."
+              : "Baseline charts, not solver output. Conventional ranges, to be replaced by computed ones."}
           </p>
           {overall.attempts > 0 && (
             <button
@@ -179,6 +241,34 @@ export function Drill() {
         </div>
       </footer>
     </div>
+  );
+}
+
+function Chip({
+  children,
+  active,
+  onClick,
+  title,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-pressed={active}
+      className={cn(
+        "rounded-full border px-3 py-1 text-sm transition-colors",
+        active
+          ? "border-felt bg-felt text-ink"
+          : "border-line text-muted hover:border-muted hover:text-ink",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

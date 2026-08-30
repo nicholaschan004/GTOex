@@ -175,3 +175,63 @@ export function parseRange(notation: string): Set<HandClass> {
   }
   return out;
 }
+
+/** Consecutive runs in a sorted ascending list of indices. */
+function runsOf(indices: number[]): [number, number][] {
+  const runs: [number, number][] = [];
+  let start = 0;
+  for (let i = 1; i <= indices.length; i++) {
+    if (i === indices.length || indices[i]! !== indices[i - 1]! + 1) {
+      runs.push([indices[start]!, indices[i - 1]!]);
+      start = i;
+    }
+  }
+  return runs;
+}
+
+/**
+ * Collapse a set of hand classes back into the notation it would be published
+ * in. The inverse of `parseRange`, and the round trip is a test.
+ *
+ * The solver produces a set of 169 flags. Writing that into a chart file
+ * unreadably defeats the point of storing charts as notation, so its output
+ * comes back through here and lands as "22+, A2s+, K5s+" like everything else.
+ */
+export function formatRange(hands: ReadonlySet<HandClass>): string {
+  const tokens: string[] = [];
+
+  const pairIndices: number[] = [];
+  for (let i = 0; i < RANKS.length; i++) {
+    const rank = RANKS[i]!;
+    if (hands.has(`${rank}${rank}`)) pairIndices.push(i);
+  }
+  for (const [from, to] of runsOf(pairIndices)) {
+    const high = RANKS[from]!;
+    const low = RANKS[to]!;
+    // A single rank first: aces alone are "AA", not the redundant "AA+".
+    // Otherwise index 0 is aces, so a run reaching it is "and better".
+    if (from === to) tokens.push(`${high}${high}`);
+    else if (from === 0) tokens.push(`${low}${low}+`);
+    else tokens.push(`${high}${high}-${low}${low}`);
+  }
+
+  for (const suffix of ["s", "o"] as const) {
+    for (let hi = 0; hi < RANKS.length; hi++) {
+      const high = RANKS[hi]!;
+      const kickers: number[] = [];
+      for (let lo = hi + 1; lo < RANKS.length; lo++) {
+        if (hands.has(`${high}${RANKS[lo]!}${suffix}`)) kickers.push(lo);
+      }
+      for (const [from, to] of runsOf(kickers)) {
+        const strongest = RANKS[from]!;
+        const weakest = RANKS[to]!;
+        // Same order of checks as the pairs: AKs alone is "AKs", not "AKs+".
+        if (from === to) tokens.push(`${high}${strongest}${suffix}`);
+        else if (from === hi + 1) tokens.push(`${high}${weakest}${suffix}+`);
+        else tokens.push(`${high}${strongest}${suffix}-${high}${weakest}${suffix}`);
+      }
+    }
+  }
+
+  return tokens.join(", ");
+}
