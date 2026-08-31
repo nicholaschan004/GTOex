@@ -13,7 +13,7 @@ import { solve, type Solution } from "../solver/cfr";
 import { evaluateDecision } from "../solver/evaluate";
 import type { BuiltSpot } from "./spots";
 import type { HandSet } from "../solver/hands";
-import type { ActionKind } from "../solver/tree";
+import type { ActionKind, PlayerNode } from "../solver/tree";
 import { handClassOf } from "../cards";
 import { intToCard } from "../equity";
 import { CLASS_COUNT, classIndexOf } from "../combos";
@@ -49,8 +49,8 @@ export interface SolvedDecision {
  */
 const REACHABLE = 1e-4;
 
-export function describeActions(spot: BuiltSpot): ActionOption[] {
-  const { actions } = spot.node;
+export function describeActions(node: PlayerNode): ActionOption[] {
+  const { actions } = node;
   // Whatever it costs to stay in without raising is the hero's current stake,
   // which is what turns a total into a bet size.
   const passive = actions.find((action) => action.kind === "check" || action.kind === "fold");
@@ -87,18 +87,26 @@ export function solveDecision(spot: BuiltSpot, options: SolveDecisionOptions = {
   });
 
   const average = spot.tree.playerNodes.map((node) => solution.strategyAt(node));
-  const decision = evaluateDecision(
-    spot.tree,
-    spot.hands,
-    spot.ranges,
-    average,
+  return extract(
+    spot,
     spot.node,
-    spot.views,
+    solution.strategyAt(spot.node),
+    average,
+    solution.exploitabilityPercent,
   );
+}
+
+function extract(
+  spot: BuiltSpot,
+  node: PlayerNode,
+  strategy: Float64Array,
+  average: Float64Array[],
+  exploitabilityPercent: number,
+): SolvedDecision {
+  const decision = evaluateDecision(spot.tree, spot.hands, spot.ranges, average, node, spot.views);
 
   const n = spot.hands.count;
-  const actions = spot.node.actions.length;
-  const strategy = solution.strategyAt(spot.node);
+  const actions = node.actions.length;
 
   const kept: number[] = [];
   for (let h = 0; h < n; h++) if (decision.reachable[h]! > REACHABLE) kept.push(h);
@@ -119,13 +127,57 @@ export function solveDecision(spot: BuiltSpot, options: SolveDecisionOptions = {
 
   return {
     spotId: spot.definition.id,
-    actions: describeActions(spot),
+    actions: describeActions(node),
     hands,
     weight,
     frequency,
     ev,
-    exploitabilityPercent: solution.exploitabilityPercent,
+    exploitabilityPercent,
   };
+}
+
+/** A node's solved strategy and action values, over every hand on the board. */
+export interface StreetStrategy {
+  actions: ActionOption[];
+  player: 0 | 1;
+  /** `actions x handCount`. */
+  frequency: Float64Array;
+  /** `actions x handCount`, in chips. */
+  ev: Float64Array;
+}
+
+/**
+ * Every node of a street, from ONE solve, over every hand.
+ *
+ * Playing a hand out needs the strategy everywhere and for everything, not at
+ * one node for the hands that usually get there. The opponent has to act out of
+ * it, you can face a second decision after they do, and -- the part that is
+ * easy to miss -- you are allowed to play badly. A hand you bet that the solver
+ * never bets still has to have a strategy at the node after the bet, or the
+ * hand cannot continue. So nothing is filtered here.
+ */
+export function solveStreet(
+  spot: BuiltSpot,
+  options: SolveDecisionOptions = {},
+): Map<number, StreetStrategy> {
+  const solution = solve(spot.tree, spot.hands, spot.ranges, {
+    iterations: options.iterations ?? 250,
+    views: spot.views,
+    skipExploitability: true,
+  });
+  const average = spot.tree.playerNodes.map((node) => solution.strategyAt(node));
+
+  const out = new Map<number, StreetStrategy>();
+  for (const node of spot.tree.playerNodes) {
+    const decision = evaluateDecision(spot.tree, spot.hands, spot.ranges, average, node, spot.views);
+    out.set(node.id, {
+      actions: describeActions(node),
+      player: node.player,
+      frequency: average[node.id]!,
+      ev: decision.values,
+    });
+  }
+  return out;
 }
 
 /** Deal one of the hero's hands, in the proportion it actually arrives here. */
@@ -296,23 +348,46 @@ export function aggregateToClasses(
   decision: SolvedDecision,
   hands: HandSet,
 ): { frequency: Float64Array; present: boolean[] } {
-  const actions = decision.actions.length;
-  const count = decision.hands.length;
+  return aggregate(decision.actions.length, decision.hands, decision.weight, decision.frequency, hands);
+}
+
+/**
+ * The same thing for a strategy that covers every hand rather than a filtered
+ * list, which is the shape a hand being played out carries.
+ */
+export function aggregateStrategy(
+  actionCount: number,
+  frequency: Float64Array,
+  weight: Float64Array,
+  hands: HandSet,
+): { frequency: Float64Array; present: boolean[] } {
+  const all = Int32Array.from({ length: hands.count }, (_, i) => i);
+  return aggregate(actionCount, all, weight, frequency, hands);
+}
+
+function aggregate(
+  actions: number,
+  handIndices: Int32Array,
+  weights: Float64Array,
+  frequencies: Float64Array,
+  hands: HandSet,
+): { frequency: Float64Array; present: boolean[] } {
+  const count = handIndices.length;
   const frequency = new Float64Array(actions * CLASS_COUNT);
   const mass = new Float64Array(CLASS_COUNT);
 
   for (let i = 0; i < count; i++) {
-    const hand = decision.hands[i]!;
+    const hand = handIndices[i]!;
     const klass = classIndexOf(
       handClassOf(intToCard(hands.cardA[hand]!), intToCard(hands.cardB[hand]!)),
     );
-    const weight = decision.weight[i]!;
+    const weight = weights[i]!;
     if (weight <= 0) continue;
 
     mass[klass] = mass[klass]! + weight;
     for (let a = 0; a < actions; a++) {
       frequency[a * CLASS_COUNT + klass] =
-        frequency[a * CLASS_COUNT + klass]! + weight * decision.frequency[a * count + i]!;
+        frequency[a * CLASS_COUNT + klass]! + weight * frequencies[a * count + i]!;
     }
   }
 

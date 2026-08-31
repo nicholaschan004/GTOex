@@ -12,15 +12,14 @@ import {
 } from "../lib/progress";
 import { cn } from "../lib/cn";
 import { PreflopDrill } from "./PreflopDrill";
-import { PostflopDrill } from "./PostflopDrill";
+import { PlayHand } from "./PlayHand";
 import { Chip } from "./ui";
 
-type Mode = DrillMode | "river" | "turn";
+type Mode = DrillMode | "play";
 
 const MODES: { id: Mode; label: string; blurb: string }[] = [
   ...DRILL_MODES,
-  { id: "river", label: "River", blurb: "A solved river spot, computed in your browser." },
-  { id: "turn", label: "Turn", blurb: "A solved turn spot, computed at build time." },
+  { id: "play", label: "Play a hand", blurb: "Turn and river, played out against the solver." },
 ];
 
 /** What the footer says about where this mode's numbers came from. */
@@ -30,9 +29,7 @@ const PROVENANCE: Record<Mode, string> = {
     "Baseline charts and sizes, not solver output. Conventional ranges, to be replaced by computed ones.",
   pushfold:
     "Solved: fictitious play over a computed equity matrix, verified unexploitable. Shoving is the only size, so there is nothing to choose.",
-  river:
-    "Solved: discounted CFR over all 1081 combinations, in your browser, with the exploitability it reached shown on screen.",
-  turn: "Solved: discounted CFR over 48 river subgames, at build time. Eight seconds a spot is why it is not solved live.",
+  play: "Solved: the turn at build time over 48 river subgames, the river live in your browser from the ranges your line implies. The flop is not solved and is not pretended to be.",
 };
 
 /**
@@ -93,7 +90,7 @@ export function Drill() {
   const overall = totals(progress);
   const overallAccuracy = accuracy(overall);
   const weakest = weakestSpots(progress);
-  const postflop = mode === "river" || mode === "turn";
+  const postflop = mode === "play";
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-4 px-4 pb-6">
@@ -163,13 +160,7 @@ export function Drill() {
         a cost.
       */}
       {postflop ? (
-        <PostflopDrill
-          key={mode}
-          street={mode === "river" ? "river" : "turn"}
-          round={round}
-          answered={answered}
-          onAnswer={onAnswer}
-        />
+        <PlayHand key={mode} round={round} answered={answered} onAnswer={onAnswer} />
       ) : (
         <PreflopDrill
           key={mode}

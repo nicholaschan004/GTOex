@@ -42,14 +42,9 @@ export interface SpotDefinition {
   note: string;
   oopRange: string;
   ipRange: string;
-  /** Who is being asked to act. */
+  /** Which seat you are sitting in. */
   hero: Player;
-  /**
-   * Action indices from the root down to the decision. Empty means the root,
-   * which is out of position first to act.
-   */
-  line: number[];
-  /** How the line reads before you decide. */
+  /** How the hand reached the turn. Fixed, because the flop is not solved. */
   story: string;
   pot: number;
   stack: number;
@@ -79,90 +74,69 @@ export const TURN_BETTING: Omit<BettingConfig, "startingPot" | "effectiveStack">
   allInSnap: DEFAULT_BETTING.allInSnap,
 };
 
+/**
+ * Scenarios, each played from the turn to the end.
+ *
+ * A hand here is not a question with an answer, it is a situation you play out,
+ * so a spot no longer names a decision point. It names a board, two ranges and
+ * a pot, and the line is whatever the two of you do from there.
+ *
+ * The `line` field is gone for the same reason. What is left is the story of
+ * how the hand got to the turn, which is fixed because the flop cannot be
+ * solved here and pretending otherwise would be inventing a strategy.
+ */
 export const SPOTS: SpotDefinition[] = [
   {
-    id: "river-blank-btn-bb",
-    label: "Big blind, river bricks",
-    street: "river",
-    board: "Ks 9h 4c 7d 2s",
-    note: "Nothing got there. Both players have exactly what they had on the flop, so this is a pure question of who can represent the king.",
-    oopRange: PREFLOP.bbCallsBtn,
-    ipRange: PREFLOP.btnOpen,
-    hero: OOP,
-    line: [],
-    story: "You check-called the flop and the turn. The river bricks.",
-    pot: 60,
-    stack: 180,
-  },
-  {
-    id: "river-flush-completes",
-    label: "Button, the flush comes in",
-    street: "river",
-    board: "Ah 8h 3c Jd 6h",
-    note: "The third heart lands on the river. Which hands hold one matters more than which hands are strong, because a lone heart blocks the hands that can call.",
-    oopRange: PREFLOP.bbCallsBtn,
-    ipRange: PREFLOP.btnOpen,
-    hero: IP,
-    line: [0],
-    story: "The big blind checks the river to you.",
-    pot: 55,
-    stack: 170,
-  },
-  {
-    id: "river-paired-board",
-    label: "Facing a bet on a paired river",
-    street: "river",
-    board: "Qs 7d 7h 2c Qc",
-    note: "Two pair on the board, so almost nothing beats a queen and almost everything beats nothing. A hand with no showdown value is worth exactly what it can represent.",
-    oopRange: PREFLOP.bbCallsCo,
-    ipRange: PREFLOP.coOpen,
-    hero: OOP,
-    line: [0, 2],
-    story: "You check, and the cutoff bets three quarters of the pot.",
-    pot: 44,
-    stack: 150,
-  },
-  {
-    id: "river-straight-board",
-    label: "Button on a four-straight river",
-    street: "river",
-    board: "9c 8d 7s 2h Ts",
-    note: "The board makes a straight by itself with a jack or a six. Both ranges hit this hard, which is why the sizes the solver picks are not the ones intuition picks.",
-    oopRange: PREFLOP.bbCallsCo,
-    ipRange: PREFLOP.coOpen,
-    hero: IP,
-    line: [0],
-    story: "Checked to you on the river.",
-    pot: 48,
-    stack: 160,
-  },
-  {
     id: "turn-two-tone",
-    label: "Big blind on a drawing turn",
+    label: "Drawing turn, out of position",
     street: "turn",
     board: "Ks Jc 9h 7d",
-    note: "Every straight draw in the deck got there or nearly did. A hand's value is not what it is now, it is the spread of what it becomes.",
+    note: "Every straight draw in the deck got there or nearly did, so a hand is worth the spread of what it becomes rather than what it is.",
     oopRange: PREFLOP.bbCallsBtn,
     ipRange: PREFLOP.btnOpen,
     hero: OOP,
-    line: [],
-    story: "You check-called the flop. The turn brings a card everyone likes.",
+    story: "You defended the big blind, the button bet the flop, you called. The turn is a card everybody likes.",
     pot: 40,
     stack: 130,
   },
   {
     id: "turn-dry",
-    label: "Button on a dry turn",
+    label: "Dry turn, in position",
     street: "turn",
     board: "Ad 8c 3h 2s",
-    note: "Nothing draws to anything. With no cards left to fear, the turn is about who holds an ace and who can convincingly claim to.",
+    note: "Nothing draws to anything. With no cards left to fear, the hand is about who holds an ace and who can convincingly claim to.",
     oopRange: PREFLOP.bbCallsBtn,
     ipRange: PREFLOP.btnOpen,
     hero: IP,
-    line: [0],
-    story: "The big blind checks the turn to you.",
+    story: "You opened the button, the big blind called, and the flop checked through.",
     pot: 36,
     stack: 140,
+  },
+  {
+    id: "turn-paired",
+    label: "Paired turn, out of position",
+    street: "turn",
+    board: "Qs 7d 7h 2c",
+    note: "The board pairs and almost nothing improves. A hand with no showdown value is worth exactly what it can represent, which is the cleanest bluffing spot there is.",
+    oopRange: PREFLOP.bbCallsCo,
+    ipRange: PREFLOP.coOpen,
+    hero: OOP,
+    story: "You called a cutoff open from the big blind and checked the flop through.",
+    pot: 26,
+    stack: 150,
+  },
+  {
+    id: "turn-connected",
+    label: "Connected turn, in position",
+    street: "turn",
+    board: "9c 8d 7s 2h",
+    note: "Both ranges hit this hard and every card can change who is ahead, which is why the sizes the solver picks are not the ones intuition picks.",
+    oopRange: PREFLOP.bbCallsCo,
+    ipRange: PREFLOP.coOpen,
+    hero: IP,
+    story: "You opened the cutoff, the big blind called, and you both checked the flop.",
+    pot: 28,
+    stack: 160,
   },
 ];
 
@@ -181,21 +155,18 @@ export interface BuiltSpot {
   node: PlayerNode;
 }
 
-/** Walk the line from the root and check it lands somewhere the hero acts. */
-function nodeAtLine(tree: Tree, line: number[], hero: Player): PlayerNode {
-  let node = tree.root;
-  for (const index of line) {
-    if (node.kind !== "player") throw new Error("The line runs past a decision");
-    const next = node.children[index];
-    if (!next) throw new Error(`No action ${index} at that point in the tree`);
-    node = next;
-  }
-  if (node.kind !== "player") throw new Error("The line ends somewhere nobody acts");
-  if (node.player !== hero) throw new Error("The line ends on the wrong player");
-  return node;
-}
-
-export function buildSpot(definition: SpotDefinition): BuiltSpot {
+/**
+ * `withViews: false` skips the per-river showdown ranks.
+ *
+ * Playing a hand out needs the turn TREE but never the forty eight rank views,
+ * because it solves the one river that actually comes rather than all of them.
+ * Building them anyway is 54,000 hand evaluations and half a megabyte for
+ * nothing, on a screen someone is waiting at.
+ */
+export function buildSpot(
+  definition: SpotDefinition,
+  { withViews = true }: { withViews?: boolean } = {},
+): BuiltSpot {
   const board = parseCards(definition.board);
   const expected = definition.street === "river" ? 5 : 4;
   if (board.length !== expected) {
@@ -218,11 +189,14 @@ export function buildSpot(definition: SpotDefinition): BuiltSpot {
       effectiveStack: definition.stack,
     });
   } else {
-    views = buildRiverViews(hands);
+    // One river per card the board has not taken, whether or not the ranks for
+    // them get computed.
+    const rivers = 52 - board.length;
+    if (withViews) views = buildRiverViews(hands);
     tree = buildTurnTree(
       { ...TURN_BETTING, startingPot: definition.pot, effectiveStack: definition.stack },
       TURN_BETTING,
-      views.length,
+      rivers,
       riverChanceWeight(board.length),
     );
   }
@@ -233,6 +207,7 @@ export function buildSpot(definition: SpotDefinition): BuiltSpot {
     views,
     tree,
     ranges,
-    node: nodeAtLine(tree, definition.line, definition.hero),
+    // Where the hand starts, which out of position always is.
+    node: tree.root as PlayerNode,
   };
 }

@@ -10,7 +10,7 @@
 [![React](https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Tailwind](https://img.shields.io/badge/Tailwind-3-38bdf8?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
-[![Tests](https://img.shields.io/badge/tests-459-3fb950?style=flat-square)](#correctness)
+[![Tests](https://img.shields.io/badge/tests-466-3fb950?style=flat-square)](#correctness)
 
 </div>
 
@@ -21,9 +21,9 @@ apply to the next hand.
 
 No signup, no backend. Open the link and you are in it.
 
-**Five modes.** Three preflop -- opening (five seats, four stack depths), facing a raise
-(all fifteen opener and defender pairs), and push/fold (heads up, 2bb to 20bb) -- and two
-postflop, river and turn, drilled against a solver rather than a chart.
+**Four modes.** Three preflop -- opening (five seats, four stack depths), facing a raise
+(all fifteen opener and defender pairs), and push/fold (heads up, 2bb to 20bb) -- and one
+postflop, where you play a hand out against the solver.
 
 Every hand is drawn as a seat map, because position is a spatial fact. "UTG, HJ fold,
 action on you" is a sentence you have to decode; a table with two seats greyed out and
@@ -149,31 +149,44 @@ quadratic version, on four boards chosen to be awkward: one with a flush live, o
 the board is a royal flush and every hand ties, one that is quads with only a kicker to
 separate hands, and one ordinary one.
 
-### Drilling against it
+### Playing a hand against it
 
-The postflop modes are the first surfaces in this project where the footer says *solved*
-instead of *baseline*. Pick a river spot and it is solved in your browser in about 250ms,
-with the exploitability it reached printed on screen. Pick a turn spot and it loads
-instantly, because eight seconds is not a thing to do between hands, so turn spots are
-solved at build time and shipped as data -- the same trade the push/fold charts already
-make.
+The postflop mode is the first surface here where the footer says *solved* instead of
+*baseline*, and it is a hand rather than a question. You get cards, you act, the opponent
+acts back out of the equilibrium strategy for the hand it is actually holding, a river
+comes, you act again, and somebody wins the pot.
+
+**It starts on the turn, and says so.** A flop solve is three betting rounds and two chance
+layers -- minutes and gigabytes even for a commercial solver. So how the hand reached the
+turn is fixed, and the screen states it rather than inventing a flop strategy.
+
+**The trick that makes the river cheap.** A full turn solve contains the strategy for all
+48 rivers, which is megabytes, and exactly one river ever comes. So the turn is precomputed
+and shipped (four nodes, kilobytes); as the hand plays out each player's range is
+multiplied by the probability they would have taken the action they took, which is plain
+Bayes and exact; then the one river that arrives is solved right there in about 200ms from
+those narrowed ranges.
 
 **Scoring had to change, and that is the interesting part.** A preflop chart says open or
 fold, so an answer is right or wrong. A solved postflop strategy says this hand bets 43% of
 the time, checks 47% and bets bigger 10%, and *all three are correct*. Marking two of them
 wrong would be teaching a fiction.
 
-So an answer is not graded, it is priced: **how much expected value did that action give
-up?** Check a hand the solver mixes and it says "Fine -- 0.12 chips, which is under a
-percent of the pot", and shows you the mix. Take a genuinely bad line and it says what it
-cost. The threshold for "fine" is one percent of the pot, which is roughly where the
-difference between two actions disappears into the error of the solve itself; claiming to
-know better than that would be claiming more than the solver does.
+So a decision is not graded, it is priced: **how much expected value did that action give
+up?** The log shows each decision with its bill next to it -- `free`, or `-0.51` beside the
+solver's actual mix. At the end you get the pot *and* the tally, deliberately as separate
+lines:
 
-The 13x13 grid is still there, but shaded rather than filled: each cell is a bar showing
-the actions in the proportions the solver plays them, because a grid that picked the
-commonest action and painted the cell with it would throw away the most interesting thing
-on the screen.
+> **You win 40** on a fold. Opponent had 4sAc.
+> Gave up 0.51 chips across the hand. *Winning the pot and playing it well are different
+> things.*
+
+Winning with a bad line and losing with a good one both happen constantly, and a trainer
+that conflated them would be teaching results rather than decisions.
+
+The 13x13 grid is still there but shaded rather than filled: each cell is a bar showing the
+actions in the proportions the solver plays them, because painting each cell with its
+commonest action would throw away the most interesting thing on the screen.
 
 ### The turn, and what abstraction actually buys
 
@@ -249,7 +262,7 @@ come back out as `22+, A2s+, K3s+` like every other chart in the project.
 
 ## Correctness
 
-`npm test` runs 459 cases. The ones doing real work:
+`npm test` runs 466 cases. The ones doing real work:
 
 - **Always giving one answer scores that action's frequency.** Answer "raise" to every hand
   and your accuracy in a spot has to converge on how often that spot's chart says to raise.
@@ -298,7 +311,7 @@ src/lib/sizing.ts       open and 3-bet sizes, from two rules
 src/lib/table.ts        who is sitting where, what they put in, what it costs
 src/lib/solver/         the postflop solver: tree, terminals, discounted CFR,
                         chance nodes for the turn, and card abstraction
-src/lib/postflop/       the drillable spots, and one solved decision from each
+src/lib/postflop/       the scenarios, and a hand being played through one
 ```
 
 ## Running it
