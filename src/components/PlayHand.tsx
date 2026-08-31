@@ -4,7 +4,6 @@ import { aggregateStrategy } from "../lib/postflop/decision";
 import { Playthrough, type HandView } from "../lib/postflop/playthrough";
 import { SPOTS } from "../lib/postflop/spots";
 import { loadTurn, type SolvedTurn } from "../lib/postflop/turn-data";
-import { TURNS_BY_SPOT } from "../lib/charts/turn.generated";
 import { OOP } from "../lib/solver/tree";
 import { cn } from "../lib/cn";
 import { PlayingCard } from "./PlayingCard";
@@ -36,17 +35,32 @@ export function PlayHand({ round, answered, onAnswer }: DrillBodyProps) {
   const hand = useRef<Playthrough | null>(null);
   const recorded = useRef(false);
 
+  /**
+   * The solved scenarios are a couple of hundred kilobytes and only matter to
+   * someone who clicks this mode, so they arrive on a dynamic import and get
+   * their own chunk. Landing on the preflop drill should not pay for a turn
+   * solve nobody asked for.
+   */
   useEffect(() => {
+    let cancelled = false;
     setTurn(null);
     setView(null);
     setFailed(null);
-    try {
-      const packed = TURNS_BY_SPOT.get(definition.id);
-      if (!packed) throw new Error(`${definition.id} has not been solved`);
-      setTurn(loadTurn(packed));
-    } catch (error) {
-      setFailed(error instanceof Error ? error.message : String(error));
-    }
+
+    import("../lib/charts/turn.generated")
+      .then(({ TURNS_BY_SPOT }) => {
+        if (cancelled) return;
+        const packed = TURNS_BY_SPOT.get(definition.id);
+        if (!packed) throw new Error(`${definition.id} has not been solved`);
+        setTurn(loadTurn(packed));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setFailed(error instanceof Error ? error.message : String(error));
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [definition]);
 
   useEffect(() => {
@@ -117,6 +131,12 @@ export function PlayHand({ round, answered, onAnswer }: DrillBodyProps) {
       {failed && (
         <p className="text-center text-sm text-wrong" role="status">
           {failed}
+        </p>
+      )}
+
+      {!view && !failed && (
+        <p className="text-center text-sm text-muted" role="status">
+          Loading the solved scenario…
         </p>
       )}
 

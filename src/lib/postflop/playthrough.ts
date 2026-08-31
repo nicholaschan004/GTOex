@@ -368,10 +368,26 @@ export class Playthrough {
       ranges[1]![at] = this.ranges[1]![h]!;
     }
 
+    this.hands = hands;
+    this.ranges = ranges;
+    this.heroIndex = hands.indexOf(heroCards[0], heroCards[1]);
+    this.villainIndex = hands.indexOf(villainCards[0], villainCards[1]);
+    this.street = "river";
+    this.events.push({ kind: "street", name: "river", board: this.boardCards() });
+
+    // Both players all in on the turn, so the river is a card and nothing else.
+    // Building a betting tree on an empty stack would offer a bet of one chip
+    // that neither player has.
+    const behind = this.spot.stack - this.closed;
+    if (behind <= 0) {
+      this.node = { kind: "showdown", amount: 0 };
+      return;
+    }
+
     const tree = buildTree({
       ...RIVER_BETTING,
       startingPot: this.spot.pot + 2 * this.closed,
-      effectiveStack: Math.max(1, this.spot.stack - this.closed),
+      effectiveStack: behind,
     });
 
     this.strategies = solveStreet(
@@ -379,15 +395,8 @@ export class Playthrough {
       { iterations: this.riverIterations },
     );
 
-    this.hands = hands;
     this.tree = tree;
-    this.ranges = ranges;
-    this.heroIndex = hands.indexOf(heroCards[0], heroCards[1]);
-    this.villainIndex = hands.indexOf(villainCards[0], villainCards[1]);
-    this.street = "river";
     this.node = tree.root;
-
-    this.events.push({ kind: "street", name: "river", board: this.boardCards() });
   }
 
   private showdownVerdict(): "win" | "lose" | "split" {

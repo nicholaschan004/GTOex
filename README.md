@@ -10,7 +10,7 @@
 [![React](https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Tailwind](https://img.shields.io/badge/Tailwind-3-38bdf8?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
-[![Tests](https://img.shields.io/badge/tests-466-3fb950?style=flat-square)](#correctness)
+[![Tests](https://img.shields.io/badge/tests-467-3fb950?style=flat-square)](#correctness)
 
 </div>
 
@@ -156,6 +156,12 @@ The postflop mode is the first surface here where the footer says *solved* inste
 acts back out of the equilibrium strategy for the hand it is actually holding, a river
 comes, you act again, and somebody wins the pot.
 
+**Ten scenarios**, chosen to be different games rather than different cards: a monotone
+flop, a turn that completes the flush, a paired board, a broadway board where the preflop
+raiser is the one out of position, a low board nobody connected with, an overcard that hits
+one range and misses the other, and a short-stacked pot where a bet is the whole stack and
+there is no third decision.
+
 **It starts on the turn, and says so.** A flop solve is three betting rounds and two chance
 layers -- minutes and gigabytes even for a commercial solver. So how the hand reached the
 turn is fixed, and the screen states it rather than inventing a flop strategy.
@@ -262,7 +268,7 @@ come back out as `22+, A2s+, K3s+` like every other chart in the project.
 
 ## Correctness
 
-`npm test` runs 466 cases. The ones doing real work:
+`npm test` runs 467 cases. The ones doing real work:
 
 - **Always giving one answer scores that action's frequency.** Answer "raise" to every hand
   and your accuracy in a spot has to converge on how often that spot's chart says to raise.

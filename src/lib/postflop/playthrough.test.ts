@@ -198,6 +198,46 @@ describe("playing a hand", () => {
     }
   });
 
+  /**
+   * The short-stack scenario is the only one where a turn bet is the whole
+   * stack, so it is the only one that reaches the river with nothing left to
+   * bet. That path builds no river tree at all, and a tree on an empty stack
+   * would offer a one chip bet neither player has.
+   */
+  it("plays a river out with no betting when the turn got both players all in", () => {
+    const short = loadTurn(TURNS_BY_SPOT.get("turn-low-spr")!);
+    const rng = mulberry32(17);
+    let allIn = 0;
+
+    for (let i = 0; i < 30; i++) {
+      const hand = new Playthrough(short, { rng, riverIterations: FAST });
+      for (let step = 0; step < 8; step++) {
+        const view = hand.view();
+        if (view.finished || !view.choice) break;
+        // Take the aggressive action when there is one, so the stack goes in.
+        const at = view.choice.actions.findIndex((a) => a.kind === "bet" || a.kind === "call");
+        hand.act(at >= 0 ? at : 0);
+      }
+
+      const view = hand.view();
+      expect(view.finished).toBe(true);
+      if (view.board.length !== 5) continue;
+
+      const result = view.events.find((event) => event.kind === "result");
+      if (!result || result.kind !== "result") throw new Error("no result");
+      // Everyone is all in, so the river cannot have been bet: the only events
+      // after the river card are the result.
+      const afterRiver = view.events.slice(
+        view.events.findIndex((e) => e.kind === "street" && e.name === "river"),
+      );
+      expect(afterRiver.filter((e) => e.kind === "acted")).toHaveLength(0);
+      expect(result.reason).toBe("showdown");
+      allIn++;
+    }
+
+    expect(allIn).toBeGreaterThan(3);
+  });
+
   it("logs the hand in the order it happened", () => {
     const view = play(scenario, mulberry32(6));
     const kinds = view.events.map((event) => event.kind);
