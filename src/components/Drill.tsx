@@ -19,7 +19,7 @@ type Mode = DrillMode | "play";
 
 const MODES: { id: Mode; label: string; blurb: string }[] = [
   ...DRILL_MODES,
-  { id: "play", label: "Play a hand", blurb: "Turn and river, played out against the solver." },
+  { id: "play", label: "Play a hand", blurb: "Preflop to river, played out against the solver." },
 ];
 
 /** What the footer says about where this mode's numbers came from. */
@@ -29,7 +29,7 @@ const PROVENANCE: Record<Mode, string> = {
     "Baseline charts and sizes, not solver output. Conventional ranges, to be replaced by computed ones.",
   pushfold:
     "Solved: fictitious play over a computed equity matrix, verified unexploitable. Shoving is the only size, so there is nothing to choose.",
-  play: "Solved: the turn at build time over 48 river subgames, the river live in your browser from the ranges your line implies. The flop is not solved and is not pretended to be.",
+  play: "Preflop is the same baseline charts as the drills above. The flop is solved at build time over three streets; the turn and the river are solved in your browser from the ranges your own line implies.",
 };
 
 /**

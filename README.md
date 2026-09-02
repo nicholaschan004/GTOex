@@ -152,43 +152,71 @@ separate hands, and one ordinary one.
 ### Playing a hand against it
 
 The postflop mode is the first surface here where the footer says *solved* instead of
-*baseline*, and it is a hand rather than a question. You get cards, you act, the opponent
-acts back out of the equilibrium strategy for the hand it is actually holding, a river
-comes, you act again, and somebody wins the pot.
+*baseline*, and it is a hand rather than a question. You are dealt two cards, you act
+preflop, the flop comes, and you play it to the end. The opponent is not a script: at every
+decision it draws from the solved strategy for the hand it is actually holding, and after
+every action both ranges narrow by exactly the amount that action implies.
 
-**Ten scenarios**, chosen to be different games rather than different cards: a monotone
-flop, a turn that completes the flush, a paired board, a broadway board where the preflop
-raiser is the one out of position, a low board nobody connected with, an overcard that hits
-one range and misses the other, and a short-stacked pot where a bet is the whole stack and
-there is no third decision.
+Playing badly does not stop the hand. That is most of the point -- the interesting question
+after a mistake is what the rest of the hand looks like.
 
-**It starts on the turn, and says so.** A flop solve is three betting rounds and two chance
-layers -- minutes and gigabytes even for a commercial solver. So how the hand reached the
-turn is fixed, and the screen states it rather than inventing a flop strategy.
+**Six scenarios**, each a preflop line and a flop: a two-tone board where the king hits the
+raiser far harder than the caller, a dry ace, a low connected flop where the *caller* has
+the stronger range, a broadway board where neither player can claim it, a paired board, and
+a monotone one.
 
-**The trick that makes the river cheap.** A full turn solve contains the strategy for all
-48 rivers, which is megabytes, and exactly one river ever comes. So the turn is precomputed
-and shipped (four nodes, kilobytes); as the hand plays out each player's range is
-multiplied by the probability they would have taken the action they took, which is plain
-Bayes and exact; then the one river that arrives is solved right there in about 200ms from
-those narrowed ranges.
+Nothing about a scenario is typed in except the three cards and the two seats. The ranges
+come from this repo's own opening and defending charts, and the pot is counted from the
+sizing rules: the button opens to 2.5, the big blind calls, the small blind's half is dead,
+so the flop is played for 5.5bb with 97.5bb behind.
+
+**Each street is solved by whatever can solve it best at the moment it matters.**
+
+| street | where the strategy comes from |
+| --- | --- |
+| preflop | the same baseline charts as the drills above, and it says so |
+| flop | a three street solve done at build time, shipped as its four flop nodes |
+| turn | solved in your browser when it arrives, from the ranges your line implies |
+| river | the same, and cheaper |
+
+The flop solve is the expensive one: the flop betting round, all 49 turns, and all 48
+rivers under each, which instantiates the river betting round **21,168 times** and comes to
+85,264 decision nodes. About fifteen minutes each, landing between **0.257% and 0.409% of
+pot** across the six, with the river bucketed to fit in memory. That clears the same 0.5%
+bar the single-street solves are held to, which was not a given for a game this size, and
+`shipped.test.ts` fails the build if a regenerated scenario ever stops clearing it.
+
+The turn and the river are *not* read out of it, and that is a deliberate upgrade rather
+than a shortcut. After two players act on the flop the ranges are whatever those actions
+made them, and there is no precomputing that -- so those streets get solved when they
+arrive, in a Web Worker, while the card is landing. They see the real narrowed ranges
+rather than the flop's starting ones, and they carry no bucketing at all.
+
+**A cheap depth limit was tried first, and it was wrong.** Valuing the river as a checkdown
+instead of playing it out makes a turn strategy **7.126%** of pot exploitable against
+0.017% exact -- while reporting 0.003% against its own game. It converged beautifully to
+the wrong game. Details in `docs/postflop-solver.md`.
 
 **Scoring had to change, and that is the interesting part.** A preflop chart says open or
 fold, so an answer is right or wrong. A solved postflop strategy says this hand bets 43% of
-the time, checks 47% and bets bigger 10%, and *all three are correct*. Marking two of them
-wrong would be teaching a fiction.
+the time and checks 57%, and *both are correct*. Marking one of them wrong would be
+teaching a fiction.
 
-So a decision is not graded, it is priced: **how much expected value did that action give
-up?** The log shows each decision with its bill next to it -- `free`, or `-0.51` beside the
-solver's actual mix. At the end you get the pot *and* the tally, deliberately as separate
-lines:
+So a postflop decision is not graded, it is priced: **how much expected value did that
+action give up?** And the hand is rated on the share of the value that was genuinely on
+offer -- for each decision, the gap between its best action and its worst -- that you kept.
+A decision where every action is worth the same tests nothing and counts for nothing.
 
-> **You win 40** on a fold. Opponent had 4sAc.
-> Gave up 0.51 chips across the hand. *Winning the pot and playing it well are different
-> things.*
+> **You win 9.3bb** at showdown, they had `Ah Kd`.
+> **Sharp** · kept 94% of the expected value on offer across 3 decisions.
+> Gave up 0.31bb against playing every street the way the solver does.
+> flop check (free) · turn bet 4.1 *(check 62%, bet 38%)* -0.31 · river call (free)
+> Preflop: chart agrees. *Scored against a chart rather than a solve, so it is right or
+> wrong rather than priced.*
 
-Winning with a bad line and losing with a good one both happen constantly, and a trainer
-that conflated them would be teaching results rather than decisions.
+The result and the score are deliberately separate lines. Winning with a bad line and
+losing with a good one both happen constantly, and a trainer that conflated them would be
+teaching results rather than decisions.
 
 The 13x13 grid is still there but shaded rather than filled: each cell is a bar showing the
 actions in the proportions the solver plays them, because painting each cell with its

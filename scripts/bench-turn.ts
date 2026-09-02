@@ -161,6 +161,6 @@ console.log(
     spot.hands,
     ranges,
     spot.tree.playerNodes.map((node) => exact.strategyAt(node)),
-    spot.views,
+    [spot.views],
   ).toFixed(6)} chips/hand`,
 );

@@ -21,6 +21,7 @@
  */
 
 import type { HandSet, RankView, RiverView } from "./hands";
+import { viewsFor } from "./cfr";
 import { foldValues, showdownValues, terminalScratch } from "./terminal";
 import {
   maxDepth,
@@ -61,7 +62,7 @@ export function evaluateDecision(
   ranges: readonly [Float64Array, Float64Array],
   average: readonly Float64Array[],
   target: PlayerNode,
-  views?: readonly RiverView[],
+  viewSets?: readonly (readonly RiverView[])[],
 ): Decision {
   const n = hands.count;
   const hero: Player = target.player;
@@ -102,7 +103,7 @@ export function evaluateDecision(
     }
 
     if (node.kind === "chance") {
-      if (!views) throw new Error("A tree with chance nodes needs a rank view for each card");
+      const views = viewsFor(viewSets, node.viewSet, node.children.length);
       const { value, maskSelf, maskOpponent } = level;
       value.fill(0);
 

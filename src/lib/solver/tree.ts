@@ -42,6 +42,13 @@ export interface PlayerNode {
    */
   chanceIndex: number;
   /**
+   * Which set of runout views the enclosing chance node dealt from, or -1 on
+   * the first street. With two chance layers `chanceIndex` alone no longer
+   * names a board: river node three under turn `Th` and river node three under
+   * turn `2c` are both chance branch three. The pair does name it.
+   */
+  viewSet: number;
+  /**
    * Position in `Tree.playerNodes`, so the solver can index its storage with an
    * array rather than a Map. This is walked millions of times per solve and a
    * hash lookup per node per iteration is not free.
@@ -79,6 +86,12 @@ export interface ChanceNode {
    * actually see come. See `riverChanceWeight`.
    */
   weight: number;
+  /**
+   * Which of the solver's runout view sets describes these children. A tree
+   * with one chance layer only ever uses set zero; a flop tree uses one set for
+   * the turn and a further set per turn card for the river.
+   */
+  viewSet: number;
 }
 
 export type TreeNode = PlayerNode | FoldNode | ShowdownNode | ChanceNode;
@@ -151,6 +164,7 @@ export function buildTree(
   street = 0,
   playerNodes: PlayerNode[] = [],
   chanceIndex = -1,
+  viewSet = -1,
 ): Tree {
   if (config.effectiveStack <= 0) throw new Error("Effective stack must be positive");
   if (config.startingPot <= 0) throw new Error("Starting pot must be positive");
@@ -249,6 +263,7 @@ export function buildTree(
       children,
       street,
       chanceIndex,
+      viewSet,
       id: playerNodes.length,
     };
     playerNodes.push(node);
@@ -280,33 +295,122 @@ export function buildTurnTree(
   riverCount: number,
   chanceWeight: number,
 ): Tree {
+  return buildStreets(turn, [
+    { cards: riverCount, chanceWeight, betting: river, viewSet: () => 0 },
+  ]);
+}
+
+/** A street that starts with a card coming off. */
+export interface StreetPlan {
+  /** How many cards can come. Not the same as how likely any one of them is. */
+  cards: number;
+  /** Probability of any one of them. See `riverChanceWeight`. */
+  chanceWeight: number;
+  betting: Omit<BettingConfig, "startingPot" | "effectiveStack">;
+  /**
+   * Which runout view set covers these cards, given the ones dealt before.
+   * A turn layer answers zero for everything; a river layer has to answer
+   * differently per turn card, because the ranks depend on it.
+   */
+  viewSet: (dealtSoFar: readonly number[]) => number;
+}
+
+/**
+ * A betting round, then a card, then another, for as many streets as asked for.
+ *
+ * The pot and the stacks carry across, and that is the whole of the accounting.
+ * If a street puts `i` in from each player, the next one starts with a pot of
+ * `startingPot + 2i` and `effectiveStack - i` behind, and its own payoff
+ * formula then produces exactly the number the caller needs. Worth checking
+ * rather than trusting, over three streets: a showdown after `i0`, `i1` and
+ * `i2` pays `(P + 2i0 + 2i1) / 2 + i2`, which is `P/2 + i0 + i1 + i2`, which is
+ * half the dead money plus everything the loser put in. Which is what it owes.
+ *
+ * A line that gets all in early has no betting left, but the board still has to
+ * run out: the remaining chance layers are dealt with showdowns at the bottom
+ * rather than collapsing to one. Which hand wins still depends on the cards,
+ * and a showdown never sits directly under a chance layer that is not the last,
+ * which is what lets the turn layer of a flop solve carry views with no ranks
+ * in them.
+ */
+export function buildStreets(first: BettingConfig, later: readonly StreetPlan[]): Tree {
   const playerNodes: PlayerNode[] = [];
 
-  const dealTheRiver: StreetEnd = (invested, amount) => {
-    const behind = turn.effectiveStack - invested;
-    const children: TreeNode[] = [];
+  /** Deal every remaining street with nobody left to bet. */
+  function runOut(next: number, dealt: number[], amount: number): TreeNode {
+    const plan = later[next];
+    if (!plan) return { kind: "showdown", amount };
+    return {
+      kind: "chance",
+      weight: plan.chanceWeight,
+      viewSet: plan.viewSet(dealt),
+      children: Array.from({ length: plan.cards }, (_, card) =>
+        runOut(next + 1, [...dealt, card], amount),
+      ),
+    };
+  }
 
-    for (let i = 0; i < riverCount; i++) {
-      if (behind <= 0) {
-        children.push({ kind: "showdown", amount });
-        continue;
+  function endOf(next: number, dealt: number[], config: BettingConfig): StreetEnd {
+    return (invested, amount) => {
+      const plan = later[next];
+      if (!plan) return { kind: "showdown", amount };
+
+      const behind = config.effectiveStack - invested;
+      const startingPot = config.startingPot + 2 * invested;
+      const children: TreeNode[] = [];
+
+      for (let card = 0; card < plan.cards; card++) {
+        const path = [...dealt, card];
+        if (behind <= 0) {
+          children.push(runOut(next + 1, path, amount));
+          continue;
+        }
+        const config2 = { ...plan.betting, startingPot, effectiveStack: behind };
+        children.push(
+          buildTree(
+            config2,
+            endOf(next + 1, path, config2),
+            next + 1,
+            playerNodes,
+            card,
+            plan.viewSet(dealt),
+          ).root,
+        );
       }
-      children.push(
-        buildTree(
-          { ...river, startingPot: turn.startingPot + 2 * invested, effectiveStack: behind },
-          (_i, riverAmount) => ({ kind: "showdown", amount: riverAmount }),
-          1,
-          playerNodes,
-          i,
-        ).root,
-      );
-    }
 
-    return { kind: "chance", children, weight: chanceWeight };
-  };
+      return { kind: "chance", children, weight: plan.chanceWeight, viewSet: plan.viewSet(dealt) };
+    };
+  }
 
-  const tree = buildTree(turn, dealTheRiver, 0, playerNodes);
-  return { ...tree, streets: 2 };
+  const tree = buildTree(first, endOf(0, [], first), 0, playerNodes);
+  return { ...tree, streets: later.length + 1 };
+}
+
+/**
+ * The decision nodes of the FIRST street, keyed by the actions that reach them.
+ *
+ * Node ids are assigned in build order, and the tree that solved a street is
+ * usually not the tree that plays it: a flop is solved on 85,264 nodes and
+ * played on four, and a turn is solved with 48 river subtrees hanging off it
+ * and played without them. The ids do not line up between the two and were
+ * never going to. A path does.
+ *
+ * Walking stops as soon as the street changes, which is what makes one function
+ * work on both: the children of a street ending are a chance node on the
+ * solver's tree and a showdown on the player's, and neither is a player node on
+ * the street being walked.
+ */
+export function streetNodesByPath(tree: Tree): Map<string, PlayerNode> {
+  const out = new Map<string, PlayerNode>();
+
+  function visit(node: TreeNode, path: number[]): void {
+    if (node.kind !== "player" || node.street !== 0) return;
+    out.set(path.join(","), node);
+    node.children.forEach((child, action) => visit(child, [...path, action]));
+  }
+
+  visit(tree.root, []);
+  return out;
 }
 
 /** Every node in the tree, for sizing storage and for tests. */

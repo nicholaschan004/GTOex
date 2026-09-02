@@ -69,8 +69,15 @@ export interface SolveOptions {
   /**
    * One rank view per chance child, in the order the chance node lists them.
    * Required when the tree contains a chance node, unused when it does not.
+   * Shorthand for a `viewSets` of one, which is all a two street tree needs.
    */
   views?: readonly RiverView[];
+  /**
+   * Runout views per chance layer, indexed by the `viewSet` on the chance node.
+   * A flop tree needs this rather than `views`: the river ranks depend on which
+   * turn card came, so there is one set for the turn and forty nine more.
+   */
+  viewSets?: readonly (readonly RiverView[])[];
   /** Which hands share a strategy at a given node. Return null for none. */
   bucketsFor?: (node: PlayerNode) => Bucketing | null;
   /** Skip the best-response pass, which costs about one iteration per player. */
@@ -98,8 +105,6 @@ interface Store {
   strategySum: Float64Array;
   /** actions x buckets, the regret-matched strategy for this iteration. */
   probability: Float64Array;
-  /** actions x hands, `probability` spread back over the hands that share it. */
-  current: Float64Array;
 }
 
 /** Buffers for one level of the tree. Only one node per level is ever mid-flight. */
@@ -109,6 +114,16 @@ interface Level {
   childValue: Float64Array;
   maskSelf: Float64Array;
   maskOpponent: Float64Array;
+  /**
+   * A bucketed node's strategy spread back over the hands that share it.
+   *
+   * Pooled by depth rather than kept per node, and that is not a micro
+   * optimisation: a flop tree has 85,000 nodes, and one hand-width array each
+   * would be gigabytes of scratch that is live for microseconds. Storing
+   * regret per bucket and then handing every node its own per-hand copy would
+   * have given back exactly what bucketing was for.
+   */
+  spread: Float64Array;
 }
 
 function buildLevels(depth: number, width: number, n: number): Level[] {
@@ -118,6 +133,7 @@ function buildLevels(depth: number, width: number, n: number): Level[] {
     childValue: new Float64Array(width * n),
     maskSelf: new Float64Array(n),
     maskOpponent: new Float64Array(n),
+    spread: new Float64Array(width * n),
   }));
 }
 
@@ -145,7 +161,7 @@ export function solve(
 ): Solution {
   const { iterations, alpha, beta, gamma, reportEvery } = { ...DEFAULT_SOLVE, ...options };
   const n = hands.count;
-  const views = options.views;
+  const viewSets = resolveViewSets(options);
 
   for (const range of ranges) {
     if (range.length !== n) {
@@ -157,26 +173,28 @@ export function solve(
     const actions = node.actions.length;
     const bucketing = options.bucketsFor?.(node) ?? null;
     const buckets = bucketing?.count ?? n;
-    const probability = new Float64Array(actions * buckets);
     return {
       actions,
       buckets,
       map: bucketing?.map ?? null,
       regret: new Float64Array(actions * buckets),
       strategySum: new Float64Array(actions * buckets),
-      probability,
-      // Unbucketed, the per-hand strategy IS the per-bucket one, so it shares
-      // the array rather than copying it every visit.
-      current: bucketing ? new Float64Array(actions * n) : probability,
+      probability: new Float64Array(actions * buckets),
     };
   });
 
   const levels = buildLevels(maxDepth(tree.root), widestNode(tree), n);
   const cardScratch = terminalScratch();
 
-  /** Regret matching, then spread over the hands that share each bucket. */
-  function matchRegret(store: Store): void {
-    const { actions, buckets, regret, probability, current, map } = store;
+  /**
+   * Regret matching, then spread over the hands that share each bucket.
+   *
+   * Returns the per-hand strategy. Unbucketed, the per-hand strategy IS the
+   * per-bucket one, so it hands back the store's own array rather than copying
+   * it; bucketed, it spreads into this level's scratch.
+   */
+  function matchRegret(store: Store, depth: number): Float64Array {
+    const { actions, buckets, regret, probability, map } = store;
     const uniform = 1 / actions;
 
     for (let b = 0; b < buckets; b++) {
@@ -195,7 +213,10 @@ export function solve(
       }
     }
 
-    if (map) expand(probability, current, actions, buckets, map, n);
+    if (!map) return probability;
+    const { spread } = levels[depth]!;
+    expand(probability, spread, actions, buckets, map, n);
+    return spread;
   }
 
   function traverse(
@@ -220,7 +241,7 @@ export function solve(
     }
 
     if (node.kind === "chance") {
-      if (!views) throw new Error("A tree with chance nodes needs a rank view for each card");
+      const views = viewsFor(viewSets, node.viewSet, node.children.length);
       const { value, maskSelf, maskOpponent } = level;
       value.fill(0);
 
@@ -253,9 +274,9 @@ export function solve(
     }
 
     const store = stores[node.id]!;
-    const { actions, buckets, current, map, regret, strategySum } = store;
+    const { actions, buckets, map, regret, strategySum } = store;
     const { value, childReach, childValue } = level;
-    matchRegret(store);
+    const current = matchRegret(store, depth);
 
     const acting = node.player === traverser;
     const source = acting ? reachSelf : reachOpponent;
@@ -336,7 +357,7 @@ export function solve(
 
   const gap = options.skipExploitability
     ? Number.NaN
-    : measureExploitability(tree, hands, ranges, average, views);
+    : measureExploitability(tree, hands, ranges, average, viewSets);
 
   return {
     tree,
@@ -351,6 +372,38 @@ export function solve(
 
 /** Backwards-compatible name for a single street solve. */
 export const solveRiver = solve;
+
+/** One chance layer is the common case, so it can be passed on its own. */
+export function resolveViewSets(options: {
+  views?: readonly RiverView[];
+  viewSets?: readonly (readonly RiverView[])[];
+}): readonly (readonly RiverView[])[] | undefined {
+  if (options.viewSets) return options.viewSets;
+  return options.views ? [options.views] : undefined;
+}
+
+/**
+ * The views a chance node deals from, checked rather than trusted.
+ *
+ * A tree and its views are built separately and have to agree about how many
+ * cards can come. Getting that wrong would not crash: the solver would read
+ * undefined ranks and converge to a game nobody described.
+ */
+export function viewsFor(
+  viewSets: readonly (readonly RiverView[])[] | undefined,
+  viewSet: number,
+  children: number,
+): readonly RiverView[] {
+  if (!viewSets) throw new Error("A tree with chance nodes needs a rank view for each card");
+  const views = viewSets[viewSet];
+  if (!views) throw new Error(`No runout views for chance layer ${viewSet}`);
+  if (views.length !== children) {
+    throw new Error(
+      `Chance layer ${viewSet} deals ${children} cards but has ${views.length} views`,
+    );
+  }
+  return views;
+}
 
 /** Spread a per-bucket table over the hands that share each bucket. */
 function expand(
@@ -408,7 +461,7 @@ export function measureExploitability(
   hands: HandSet,
   ranges: readonly [Float64Array, Float64Array],
   average: readonly Float64Array[],
-  views?: readonly RiverView[],
+  viewSets?: readonly (readonly RiverView[])[],
 ): number {
   const n = hands.count;
   const mass = jointMass(hands, ranges[0], ranges[1]);
@@ -438,7 +491,7 @@ export function measureExploitability(
     }
 
     if (node.kind === "chance") {
-      if (!views) throw new Error("A tree with chance nodes needs a rank view for each card");
+      const views = viewsFor(viewSets, node.viewSet, node.children.length);
       const { value, maskOpponent } = level;
       value.fill(0);
 

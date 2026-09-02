@@ -17,3 +17,7 @@ yarn-debug.log*
 yarn-error.log*
 .vercel
 .env*
+
+# Per-scenario flop solves. Intermediates: the committed artifact is
+# src/lib/charts/flop.generated.ts, which scripts/solve-flops.ts builds from them.
+src/lib/charts/flop.*.json

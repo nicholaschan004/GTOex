@@ -312,6 +312,88 @@ against DeepStack's million-plus core hours.
 It is deliberately scheduled after the exact version, because it is another approximation
 and it needs the same treatment bucketing got: measured, not assumed.
 
+### Phase F: the flop, and what the whole hand costs
+
+The trainer plays hands from preflop to river, so the flop had to be solved. This section
+is what that cost, and the numbers are not the ones the plan above expected.
+
+#### A cheap depth limit is not cheap, it is wrong
+
+The obvious way to make a flop affordable is to stop at the river and value it as a
+checkdown: deal the card, show the hands down, no betting. It is exactly computable here,
+it costs almost nothing, and it is **unusable**. Measured on the turn, where the exact
+answer is available to compare against:
+
+| turn strategy from | exploitability, graded in the real game |
+| --- | --- |
+| the exact solve | 0.017% of pot |
+| a solve whose river always checks down | **7.126% of pot** |
+
+Four hundred times worse. A strategy built against an opponent who can never bet the river
+is not a slightly blunter strategy, it is a strategy for a different game — and note that
+the depth-limited solve reported **0.003%** against *its own* game, which is what makes
+this the dangerous kind of wrong. It converged beautifully to the wrong thing. This is the
+concrete version of the warning above about fixed leaf estimates, and it is why the flop
+solve below plays all three streets out.
+
+#### Compaction: the free 2x
+
+Every loop in the solver runs over all 1,128 hands on a turn board, but a button-versus-big
+blind spot has 317 combos against 482, and their union is 491. A hand neither player can
+hold contributes zero to every reach sum, every card-removal sum and every showdown sweep.
+Dropping them is not an approximation, and the measurement says so exactly: same tree, same
+iterations, exploitability identical to three decimals (0.566% and 0.130% at 30 and 60
+iterations) at **1.9x the speed**. `compactToLive`, and the flop solve depends on it — 1,176
+hands on a three card board come down to 520.
+
+#### What a flop solve is
+
+Three betting rounds and two chance layers: the flop, all 49 turns, all 48 rivers under
+each. That instantiates the river betting round **21,168 times**, which is 84,672 of the
+tree's 85,264 decision nodes. Everything about the cost follows from that one number.
+
+At full resolution the regret tables alone are about 2 GB, so the river is bucketed — by
+each hand's equity against the opponent's range on that exact river, sorted into equal
+frequency groups, which is cheap and keeps blockers in a way a bucketing on raw hand rank
+would not. Graded in the full game, with the best response free to punish whatever the
+bucketing gave away:
+
+| river buckets | iterations | solve | exploitability |
+| --- | --- | --- | --- |
+| 16 | 40 | 3.1m | 2.595% |
+| 16 | 80 | 6.0m | 1.502% |
+| 16 | 160 | 11.4m | 1.284% |
+| 32 | 160 | 12.9m | 0.847% |
+| 64 | 160 | 10.8m | 0.582% |
+| 128 | 160 | 14.5m | **0.393%** |
+
+**The abstraction is the binding constraint, not the iteration count.** Quadrupling
+iterations at K=16 bought 1.3 points. Doubling the buckets bought 0.44, then 0.27, then
+0.19, and the clock barely moved across the whole column -- which is the Phase T2 finding
+again, from a game fifty times larger: bucketing buys memory, not time. Anyone reading the
+first two rows alone would have concluded the solver needed to run longer, and would have
+been wrong.
+
+K=128 is what ships. Across the six scenarios that lands between 0.257% and 0.409% of pot,
+the sweep above being the worst of them. That clears the 0.5% bar the river and turn solves
+are held to, which was not a given for a three street game, and the trainer prints the
+number on screen rather than asking to be trusted. At 128 buckets and ~250 live combos a
+side, the river groups hold two or three hands each, so what is left is close to the
+iteration floor rather than the abstraction.
+
+#### Where the turn and the river actually come from
+
+Not from this solve. After two players act on the flop the ranges are whatever those
+actions imply, and there is no precomputing that, so the turn and the river are solved in
+the browser when they arrive, from the narrowed ranges, in a Web Worker.
+
+That is not a downgrade, and it is worth being clear about why, because it looks like one:
+those solves see the **real** ranges rather than the flop's starting ones, and they carry
+**no bucketing**, because the memory pressure that forced the river into buckets came from
+holding 21,168 river subgames at once and there is only ever one of these. The flop solve's
+job is the flop strategy. It models the turn and river in order to get that right, and then
+those models are thrown away in favour of solving the real thing.
+
 ## Order of work
 
 1. ~~**Phase R** — river subgame: tree, `O(n)` terminals, discounted CFR, exploitability.~~
@@ -323,14 +405,21 @@ and it needs the same treatment bucketing got: measured, not assumed.
 3. ~~**Phase T2** — turn with clustered hands, measured against T1 across K.~~ **Done.**
    `src/lib/solver/abstraction.ts`, swept by `scripts/bench-turn.ts`. The answer was not
    the expected one: abstraction buys memory and not time, for the structural reason above.
-4. **Phase D** — depth-limited solving with multiple opponent continuations at the leaf
-   (Brown, Sandholm and Amos). Now the clear next step rather than a fallback, because the
-   measurement showed card abstraction cannot buy the time and depth limiting is what
-   attacks the actual cost: 48 river subgames under every turn iteration.
-5. **Phase A** — sweep the betting abstraction the same way the card abstraction was swept.
+4. ~~**Phase D** — depth-limited solving.~~ **Measured, and rejected in its cheap form.**
+   A checkdown leaf makes a turn strategy 7.126% of pot exploitable against 0.017% exact,
+   while reporting 0.003% against its own game. The flop solve plays all three streets out
+   instead and pays for it with river bucketing, which is the approximation that can be
+   graded. Multiple opponent continuations at the leaf (Brown, Sandholm and Amos) remain
+   the principled version and are still unbuilt.
+5. ~~**Phase F** — the flop, and a hand playable from preflop to river.~~ **Done.**
+   `src/lib/postflop/`. 85,264 decision nodes, 0.257% to 0.409% of pot at K=128, about 15
+   minutes a scenario; the turn and river are re-solved live from the ranges the play
+   produced, in a Web Worker, at 0.177% and 0.070%.
+6. **Phase A** — sweep the betting abstraction the same way the card abstraction was swept.
    The tree already takes sizes as configuration, and the literature's claim that action
-   abstraction is the larger error is currently the one unmeasured assertion in this
-   document.
+   abstraction is the larger error is now the one unmeasured assertion left in this
+   document. It matters more since Phase F: the full-hand solve runs one bet size and no
+   raises per street, which is the tightest action abstraction anything here uses.
 
 Nothing here goes near the trainer's user-facing surfaces until it can state its own
 exploitability, for the same reason the preflop charts say on every screen which of them

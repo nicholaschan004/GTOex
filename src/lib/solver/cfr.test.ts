@@ -84,6 +84,7 @@ function polarisedTree(): { tree: Tree; root: PlayerNode; response: PlayerNode }
     id: 1,
     street: 0,
     chanceIndex: -1,
+    viewSet: -1,
     actions: [
       { kind: "fold", to: 0 },
       { kind: "call", to: 100 },
@@ -99,6 +100,7 @@ function polarisedTree(): { tree: Tree; root: PlayerNode; response: PlayerNode }
     id: 0,
     street: 0,
     chanceIndex: -1,
+    viewSet: -1,
     actions: [
       { kind: "check", to: 0 },
       { kind: "bet", to: 100 },
