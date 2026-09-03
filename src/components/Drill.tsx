@@ -13,7 +13,7 @@ import {
 import { cn } from "../lib/cn";
 import { PreflopDrill } from "./PreflopDrill";
 import { PlayHand } from "./PlayHand";
-import { Chip } from "./ui";
+import { Chip, ChipRail } from "./ui";
 
 type Mode = DrillMode | "play";
 
@@ -93,7 +93,11 @@ export function Drill() {
   const postflop = mode === "play";
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-4 px-4 pb-6">
+    // Wider than the reading column above xl, because that is where a finished
+    // hand puts its review beside the table instead of under it. Everything
+    // that is still one column caps itself, so the extra width is only ever
+    // used by something that asked for it.
+    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-4 px-3 pb-6 sm:px-4 xl:max-w-6xl">
       {/*
         Sticky, and Next hand lives in it.
 
@@ -103,10 +107,10 @@ export function Drill() {
         same place on every hand and still on screen after the grid appears,
         which matters on a phone where Enter is not an option.
       */}
-      <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-line bg-base/95 py-3 backdrop-blur">
-        <h1 className="text-xl font-semibold tracking-tight text-ink">GTO Trainer</h1>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-3 font-mono text-sm text-muted">
+      <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-line bg-base/95 py-2.5 backdrop-blur sm:gap-3 sm:py-3">
+        <h1 className="text-lg font-semibold tracking-tight text-ink sm:text-xl">GTO Trainer</h1>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-3 font-mono text-xs text-muted sm:text-sm">
             {/* An unattempted session shows nothing here rather than 0%, which
                 would read as a score you had earned. */}
             {overallAccuracy !== null && (
@@ -123,24 +127,39 @@ export function Drill() {
             Disabled rather than hidden before you answer. It holds its slot so
             nothing shifts when it lights up, and skipping a hand you did not
             like the look of is not a thing a drill should let you do.
+
+            Gold once it is armed, which is the same thing gold means
+            everywhere else here: this one is yours. It was felt green, which
+            measured 1.47:1 against the page, so the control the whole loop
+            runs through was the hardest thing on screen to find.
+
+            text-surface rather than text-base, for the reason PokerTable gives:
+            Tailwind already ships text-base as a font size, so the darkest
+            colour in the theme cannot be reached that way, and the class
+            checker cannot warn about it because the class does exist.
           */}
           <button
             onClick={nextHand}
             disabled={!answered}
             className={cn(
-              "shrink-0 rounded-lg px-3 py-1.5 text-sm transition-colors",
+              "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 text-sm transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-base",
               answered
-                ? "bg-felt text-ink hover:bg-felt/80"
-                : "border border-line text-muted opacity-40",
+                ? "bg-accent font-medium text-surface hover:bg-accent/90"
+                : "border border-act-fold-edge text-muted opacity-50",
             )}
           >
             Next hand
-            <span className="ml-2 font-mono text-xs text-muted">⏎</span>
+            <span
+              className={cn("hidden font-mono text-xs sm:inline", answered && "text-surface/70")}
+            >
+              ⏎
+            </span>
           </button>
         </div>
       </header>
 
-      <nav className="flex flex-wrap gap-2" aria-label="Drill mode">
+      <ChipRail label="Drill mode">
         {MODES.map((option) => (
           <Chip
             key={option.id}
@@ -151,7 +170,7 @@ export function Drill() {
             {option.label}
           </Chip>
         ))}
-      </nav>
+      </ChipRail>
 
       {/*
         Keyed on the mode so switching remounts rather than reconciles. The two
@@ -183,15 +202,15 @@ export function Drill() {
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-4 text-xs text-muted">
+        <div className="flex flex-col gap-3 text-xs text-muted sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           {/* Stated on every screen, not buried in the README, because which of
               these modes was solved and which was typed is the difference that
               matters most in this project. */}
-          <p>{PROVENANCE[mode]}</p>
+          <p className="max-w-3xl">{PROVENANCE[mode]}</p>
           {overall.attempts > 0 && (
             <button
               onClick={() => setProgress(clearProgress())}
-              className="shrink-0 rounded border border-line px-2 py-1 hover:text-ink"
+              className="min-h-11 shrink-0 self-start rounded border border-act-fold-edge px-3 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-base sm:self-auto"
             >
               Reset stats
             </button>

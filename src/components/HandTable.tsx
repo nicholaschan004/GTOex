@@ -40,10 +40,14 @@ const NEXT_STREET: Record<Street, Street | null> = {
 export function HandTable({ view, stage, turn, thinking, reducedMotion }: HandTableProps) {
   const showdown = stage.result?.ending === "showdown";
   const opponentCards = stage.result?.opponentHand ?? null;
+  // Cards are sized in code rather than by a media query in CSS, because
+  // PlayingCard takes a scale and the whole point of a scale is that the two in
+  // your hand and the five on the board cannot drift apart.
+  const wide = useWideScreen();
 
   return (
     <div className="relative mx-auto w-full max-w-2xl select-none">
-      <div className="relative rounded-[46%/34%] border-[6px] border-felt-rail bg-felt px-4 py-4 shadow-2xl">
+      <div className="relative rounded-[46%/34%] border-4 border-felt-rail bg-felt px-2 py-3 shadow-2xl sm:border-[6px] sm:px-4 sm:py-4">
         <Seat
           name="Opponent"
           stack={view.stacks.opponent}
@@ -52,12 +56,18 @@ export function HandTable({ view, stage, turn, thinking, reducedMotion }: HandTa
           committed={stage.committed.opponent}
           reducedMotion={reducedMotion}
           cards={showdown && opponentCards ? opponentCards : null}
+          scale={wide ? 0.72 : 0.56}
           // Face down from the deal. They have cards before the flop too.
           faceDown
         />
 
-        <div className="my-2 flex flex-col items-center gap-2">
-          <Board cards={view.board} shown={stage.boardShown} reducedMotion={reducedMotion} />
+        <div className="my-1 flex flex-col items-center gap-1.5 sm:my-2 sm:gap-2">
+          <Board
+            cards={view.board}
+            shown={stage.boardShown}
+            scale={wide ? 0.66 : 0.5}
+            reducedMotion={reducedMotion}
+          />
           <Pot amount={stage.pot} reducedMotion={reducedMotion} />
           {/* Named after the street being solved, which is the one about to
               arrive, not the one still on screen. */}
@@ -76,6 +86,7 @@ export function HandTable({ view, stage, turn, thinking, reducedMotion }: HandTa
           committed={stage.committed.you}
           reducedMotion={reducedMotion}
           cards={view.cards}
+          scale={wide ? 0.72 : 0.56}
           faceDown={false}
         />
       </div>
@@ -91,6 +102,7 @@ function Seat({
   committed,
   cards,
   faceDown,
+  scale,
   reducedMotion,
 }: {
   name: string;
@@ -100,29 +112,33 @@ function Seat({
   committed: number;
   cards: [Card, Card] | null;
   faceDown: boolean;
+  scale: number;
   reducedMotion: boolean;
 }) {
   return (
     <div
       className="grid items-center justify-center"
-      style={{ gridTemplateColumns: "8rem auto 8rem" }}
+      // The two gutters are capped rather than fixed. At 8rem each they were
+      // wider than a 360px phone had left over once the cards were placed, so
+      // what a seat said was drawn on top of its own hand.
+      style={{ gridTemplateColumns: "minmax(0, 7rem) auto minmax(0, 7rem)" }}
     >
       {/* An empty gutter matching the one on the right, so the cards stay on
           the centre line whatever is said beside them. */}
       <div aria-hidden />
 
       <div className="flex min-w-0 flex-col items-center gap-1.5">
-        <div className="flex h-[4.5rem] items-end gap-1.5">
+        <div className="flex h-[3.6rem] items-end gap-1.5 sm:h-[4.6rem]">
           {cards ? (
             cards.map((card, at) => (
               <Land key={`${card}-${at}`} delay={at * 90} reducedMotion={reducedMotion}>
-                <PlayingCard card={card} scale={0.62} />
+                <PlayingCard card={card} scale={scale} />
               </Land>
             ))
           ) : faceDown ? (
             [0, 1].map((at) => (
               <Land key={at} delay={at * 90} reducedMotion={reducedMotion}>
-                <CardBack />
+                <CardBack scale={scale} />
               </Land>
             ))
           ) : null}
@@ -130,7 +146,7 @@ function Seat({
 
         <div
           className={cn(
-            "rounded-full border px-3 py-0.5 text-center transition-colors",
+            "rounded-full border px-2.5 py-0.5 text-center transition-colors sm:px-3",
             active ? "border-accent bg-felt-rail" : "border-line/60 bg-felt-rail/60",
           )}
         >
@@ -139,13 +155,16 @@ function Seat({
         </div>
       </div>
 
-      <div className="flex h-16 flex-col items-start justify-center gap-1 pl-2">
+      <div className="flex h-16 min-w-0 flex-col items-start justify-center gap-1 pl-1 sm:pl-2">
         {/* Keyed on what they said and how much is out, so a seat that acts
             twice on one street animates the second action too rather than
             silently swapping the text. */}
         {said && (
           <Land key={said} reducedMotion={reducedMotion}>
-            <span className="whitespace-nowrap rounded bg-base/70 px-2 py-0.5 text-xs text-ink">
+            {/* Allowed to wrap. A gutter this narrow cannot hold "opens to
+                2.5bb" on one line, and two lines inside the gutter beats one
+                line across the cards. */}
+            <span className="inline-block rounded bg-base/70 px-1.5 py-0.5 text-[0.625rem] leading-tight text-ink sm:px-2 sm:text-xs">
               {said}
             </span>
           </Land>
@@ -154,7 +173,9 @@ function Seat({
           <Land key={committed} reducedMotion={reducedMotion}>
             <span className="flex items-center gap-1.5">
               <ChipIcon />
-              <span className="font-mono text-xs text-ink">{roundChips(committed)}</span>
+              <span className="font-mono text-[0.625rem] text-ink sm:text-xs">
+                {roundChips(committed)}
+              </span>
             </span>
           </Land>
         )}
@@ -166,19 +187,24 @@ function Seat({
 function Board({
   cards,
   shown,
+  scale,
   reducedMotion,
 }: {
   cards: Card[];
   shown: number;
+  scale: number;
   reducedMotion: boolean;
 }) {
   return (
-    <div className="flex h-[3.9rem] items-center justify-center gap-1.5" aria-label="Board">
+    <div
+      className="flex h-[3.2rem] items-center justify-center gap-1 sm:h-[4.3rem] sm:gap-1.5"
+      aria-label="Board"
+    >
       {cards.slice(0, shown).map((card, at) => (
         // Keyed on the card so the three flop cards do not re-land when the
         // turn arrives; only the new one animates.
         <Land key={card} delay={at < 3 ? at * 110 : 0} reducedMotion={reducedMotion}>
-          <PlayingCard card={card} scale={0.56} />
+          <PlayingCard card={card} scale={scale} />
         </Land>
       ))}
     </div>
@@ -211,11 +237,11 @@ function ChipIcon() {
   );
 }
 
-function CardBack() {
+function CardBack({ scale }: { scale: number }) {
   return (
     <div
       className="rounded-lg border border-felt-rail bg-gradient-to-br from-raised to-base shadow-lg ring-1 ring-black/30"
-      style={{ width: `${4.5 * 0.62}rem`, height: `${6.25 * 0.62}rem` }}
+      style={{ width: `${4.5 * scale}rem`, height: `${6.25 * scale}rem` }}
       role="img"
       aria-label="Face down card"
     />
@@ -281,19 +307,30 @@ function useCountUp(target: number, reducedMotion: boolean): number {
   return shown;
 }
 
-/** The OS-level "stop moving things" setting, which this screen has to respect. */
-export function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(
-    () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches,
+/** Live answer to a media query, so a resize is picked up rather than baked in. */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(
+    () => typeof matchMedia === "function" && matchMedia(query).matches,
   );
 
   useEffect(() => {
     if (typeof matchMedia !== "function") return;
-    const query = matchMedia("(prefers-reduced-motion: reduce)");
-    const onChange = () => setReduced(query.matches);
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
+    const list = matchMedia(query);
+    const onChange = () => setMatches(list.matches);
+    onChange();
+    list.addEventListener("change", onChange);
+    return () => list.removeEventListener("change", onChange);
+  }, [query]);
 
-  return reduced;
+  return matches;
+}
+
+/** The OS-level "stop moving things" setting, which this screen has to respect. */
+export function useReducedMotion(): boolean {
+  return useMediaQuery("(prefers-reduced-motion: reduce)");
+}
+
+/** Tailwind's `sm`. Kept in step with it by hand, since JS cannot read it. */
+export function useWideScreen(): boolean {
+  return useMediaQuery("(min-width: 640px)");
 }

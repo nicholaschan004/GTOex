@@ -24,6 +24,32 @@ export default {
         "zone-raise": "#1f5c43",
         "zone-call": "#27506b",
 
+        // Buttons.
+        //
+        // Everything above is a surface you look at and can be as dark as the
+        // mood wants. These are surfaces you press, and they are the one part
+        // of the theme with a floor to clear rather than a feel to match: a
+        // control has to stand off the page by 3:1 (WCAG 1.4.11) and still
+        // carry its label at 4.5:1 (1.4.3). Those two pull in opposite
+        // directions -- a lighter fill is easier to find and harder to read on
+        // -- which leaves a band about 3.0:1 to 3.6:1 wide against this page
+        // colour, and every value here was picked inside it. contrast.test.ts
+        // holds them there, because the failure is silent otherwise: the old
+        // buttons measured 1.18:1 and nothing anywhere said so.
+        //
+        // The hues follow the range grid rather than inventing a second
+        // language, so the colour you pressed is the colour that hand is drawn
+        // in when the grid appears afterwards.
+        "act-fold": "#252d29",
+        "act-fold-hi": "#333c37",
+        "act-fold-edge": "#5b6763",
+        "act-call": "#326385",
+        "act-call-hi": "#386e94",
+        "act-call-edge": "#63a0cc",
+        "act-bet": "#256f50",
+        "act-bet-hi": "#287756",
+        "act-bet-edge": "#48b287",
+
         ink: "#e8ece9",
         muted: "#8b978f",
 

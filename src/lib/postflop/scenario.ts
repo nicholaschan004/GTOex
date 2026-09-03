@@ -77,6 +77,12 @@ export const STARTING_STACK = 100;
 export interface Scenario {
   id: string;
   label: string;
+  /**
+   * The same thing in the shorthand a poker player already reads, for the chip
+   * on a phone. Six full labels wrap to four rows on a 360px screen, which is
+   * most of the height before you reach the table.
+   */
+  short: string;
   /** Why this flop is worth playing. Shown under the table. */
   note: string;
   /** Three cards. */
@@ -91,6 +97,7 @@ export const SCENARIOS: Scenario[] = [
   {
     id: "bb-defends-two-tone",
     label: "Big blind, two tone flop",
+    short: "BB, two tone",
     flop: "Ks 9h 4h",
     opener: "BTN",
     defender: "BB",
@@ -100,6 +107,7 @@ export const SCENARIOS: Scenario[] = [
   {
     id: "btn-opens-dry",
     label: "Button, dry ace flop",
+    short: "BTN, dry ace",
     flop: "Ad 8c 3s",
     opener: "BTN",
     defender: "BB",
@@ -109,6 +117,7 @@ export const SCENARIOS: Scenario[] = [
   {
     id: "bb-defends-low-connected",
     label: "Big blind, low connected flop",
+    short: "BB, low connected",
     flop: "9c 7d 5h",
     opener: "CO",
     defender: "BB",
@@ -118,6 +127,7 @@ export const SCENARIOS: Scenario[] = [
   {
     id: "co-opens-broadway",
     label: "Cutoff, broadway flop",
+    short: "CO, broadway",
     flop: "Qs Jd 7c",
     opener: "CO",
     defender: "BB",
@@ -127,6 +137,7 @@ export const SCENARIOS: Scenario[] = [
   {
     id: "btn-opens-paired",
     label: "Button, paired flop",
+    short: "BTN, paired",
     flop: "8h 8d 3c",
     opener: "BTN",
     defender: "BB",
@@ -136,6 +147,7 @@ export const SCENARIOS: Scenario[] = [
   {
     id: "bb-defends-monotone",
     label: "Big blind, monotone flop",
+    short: "BB, monotone",
     flop: "Jc 8c 4c",
     opener: "BTN",
     defender: "BB",

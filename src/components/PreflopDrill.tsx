@@ -22,7 +22,7 @@ import { cn } from "../lib/cn";
 import { PlayingCard } from "./PlayingCard";
 import { PokerTable } from "./PokerTable";
 import { RangeGrid } from "./RangeGrid";
-import { ActionButton, Chip, type DrillBodyProps } from "./ui";
+import { ActionButton, ActionRow, Chip, ChipRail, toneOf, type DrillBodyProps } from "./ui";
 
 const SHORTCUT: Record<Action, string> = { fold: "F", call: "C", raise: "R" };
 
@@ -114,8 +114,8 @@ export function PreflopDrill({ mode, round, onAnswer }: DrillBodyProps & { mode:
   return (
     <>
       {mode === "rfi" && (
-        <nav className="flex flex-wrap items-center gap-2" aria-label="Stack depth">
-          <span className="text-xs text-muted">Stack</span>
+        <ChipRail label="Stack depth">
+          <span className="flex shrink-0 items-center text-xs text-muted">Stack</span>
           {STACK_DEPTHS.map((option) => (
             <Chip
               key={option}
@@ -137,82 +137,94 @@ export function PreflopDrill({ mode, round, onAnswer }: DrillBodyProps & { mode:
           >
             Mixed
           </Chip>
-        </nav>
+        </ChipRail>
       )}
 
-      <section className="space-y-1 text-center">
-        <p className="text-sm text-muted">{spotHeading(spot)}</p>
-        <p className="text-sm text-muted">{spotStory(spot)}</p>
-      </section>
+      {/* One column until the chart is on screen, then two on a wide screen.
+          The 13x13 grid is the only thing tall enough to push the table off a
+          laptop, and it does not exist until you have answered. */}
+      <div className={cn("grid gap-4", verdict && "xl:grid-cols-2 xl:items-start xl:gap-8")}>
+        <div className="space-y-4">
+          <section className="space-y-1 text-center">
+            <p className="text-sm text-muted">{spotHeading(spot)}</p>
+            <p className="text-sm text-muted">{spotStory(spot)}</p>
+          </section>
 
-      <PokerTable view={view} />
+          <PokerTable view={view} />
 
-      {/* Pot odds only appear where they are the whole answer, which is the
-          all-in spot. See the note in table.ts for why the other modes get
-          none. */}
-      {view.potOdds !== null && (
-        <p className="-mt-2 text-center text-xs text-muted">
-          Calling {formatChips(view.toCall)} to win {formatChips(view.pot)}, so the call needs{" "}
-          <span className="text-ink">{(view.potOdds * 100).toFixed(1)}%</span> equity.
-        </p>
-      )}
+          {/* Pot odds only appear where they are the whole answer, which is the
+              all-in spot. See the note in table.ts for why the other modes get
+              none. */}
+          {view.potOdds !== null && (
+            <p className="-mt-2 text-center text-xs text-muted">
+              Calling {formatChips(view.toCall)} to win {formatChips(view.pot)}, so the call needs{" "}
+              <span className="text-ink">{(view.potOdds * 100).toFixed(1)}%</span> equity.
+            </p>
+          )}
 
-      <div className="flex justify-center gap-3" aria-label="Your hand">
-        <PlayingCard card={spot.cards[0]} />
-        <PlayingCard card={spot.cards[1]} />
+          <div className="flex justify-center gap-3" aria-label="Your hand">
+            <PlayingCard card={spot.cards[0]} />
+            <PlayingCard card={spot.cards[1]} />
+          </div>
+
+          {!verdict && (
+            <ActionRow count={actionsFor(spot).length}>
+              {actionsFor(spot).map((action) => (
+                <ActionButton
+                  key={action}
+                  onClick={() => answer(action)}
+                  shortcut={SHORTCUT[action]}
+                  tone={toneOf(action)}
+                  price={priceOf(spot, action, view)}
+                >
+                  {actionLabel(spot, action)}
+                </ActionButton>
+              ))}
+            </ActionRow>
+          )}
+        </div>
+
+        {verdict && (
+          <div className="space-y-5">
+            <div className="text-center">
+              <p
+                className={cn(
+                  "text-lg font-semibold",
+                  verdict.correct ? "text-correct" : "text-wrong",
+                )}
+                role="status"
+              >
+                {verdict.correct ? "Correct" : "Not quite"}
+              </p>
+              <p className="text-sm text-muted">
+                {spot.hand} is{" "}
+                {bestLayer ? (
+                  <>
+                    in the <span className="text-ink">{bestLayer.label.toLowerCase()}</span> range
+                  </>
+                ) : (
+                  "outside every continuing range"
+                )}
+                , so the play is{" "}
+                <span className="text-ink">{actionLabel(spot, verdict.best).toLowerCase()}</span>
+                {priceOf(spot, verdict.best, view) && (
+                  <span className="text-ink"> {priceOf(spot, verdict.best, view)}</span>
+                )}
+                .
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <RangeGrid layers={layers} highlight={spot.hand} />
+              <p className="text-center text-xs text-muted">
+                {layers
+                  .map((layer) => `${layer.label} ${comboPercent(layer.hands).toFixed(1)}%`)
+                  .join(" · ")}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
-
-      {!verdict ? (
-        <div className="flex flex-wrap justify-center gap-3">
-          {actionsFor(spot).map((action) => (
-            <ActionButton
-              key={action}
-              onClick={() => answer(action)}
-              shortcut={SHORTCUT[action]}
-              emphasis={action !== "fold"}
-              price={priceOf(spot, action, view)}
-            >
-              {actionLabel(spot, action)}
-            </ActionButton>
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-5">
-          <div className="text-center">
-            <p
-              className={cn("text-lg font-semibold", verdict.correct ? "text-correct" : "text-wrong")}
-              role="status"
-            >
-              {verdict.correct ? "Correct" : "Not quite"}
-            </p>
-            <p className="text-sm text-muted">
-              {spot.hand} is{" "}
-              {bestLayer ? (
-                <>
-                  in the <span className="text-ink">{bestLayer.label.toLowerCase()}</span> range
-                </>
-              ) : (
-                "outside every continuing range"
-              )}
-              , so the play is{" "}
-              <span className="text-ink">{actionLabel(spot, verdict.best).toLowerCase()}</span>
-              {priceOf(spot, verdict.best, view) && (
-                <span className="text-ink"> {priceOf(spot, verdict.best, view)}</span>
-              )}
-              .
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <RangeGrid layers={layers} highlight={spot.hand} />
-            <p className="text-center text-xs text-muted">
-              {layers
-                .map((layer) => `${layer.label} ${comboPercent(layer.hands).toFixed(1)}%`)
-                .join(" · ")}
-            </p>
-          </div>
-        </div>
-      )}
     </>
   );
 }

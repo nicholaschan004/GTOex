@@ -11,7 +11,7 @@ import { OOP } from "../lib/solver/tree";
 import { cn } from "../lib/cn";
 import { HandTable, useReducedMotion } from "./HandTable";
 import { StrategyGrid } from "./StrategyGrid";
-import { ActionButton, Chip, type DrillBodyProps } from "./ui";
+import { ActionButton, ActionRow, Chip, ChipRail, toneOf, type DrillBodyProps } from "./ui";
 
 /**
  * Play a hand out, from the deal to the showdown.
@@ -188,13 +188,23 @@ export function PlayHand({ round, answered, onAnswer }: DrillBodyProps) {
 
   return (
     <>
-      <nav className="flex flex-wrap items-center gap-2" aria-label="Scenario">
+      <ChipRail label="Scenario">
         {SCENARIOS.map((option, at) => (
-          <Chip key={option.id} active={at === index} onClick={() => setIndex(at)} title={option.note}>
-            {option.label}
+          <Chip
+            key={option.id}
+            active={at === index}
+            onClick={() => setIndex(at)}
+            title={option.note}
+            label={option.label}
+          >
+            {/* The shorthand on a phone and the sentence everywhere else. Six
+                full labels are four rows of chips on a 360px screen, which is
+                most of the height above the fold spent on a picker. */}
+            <span className="sm:hidden">{option.short}</span>
+            <span className="hidden sm:inline">{option.label}</span>
           </Chip>
         ))}
-      </nav>
+      </ChipRail>
 
       {failed && (
         <p className="text-center text-sm text-wrong" role="status">
@@ -209,57 +219,73 @@ export function PlayHand({ round, answered, onAnswer }: DrillBodyProps) {
       )}
 
       {view && source && (
-        <>
-          <p className="text-center text-sm text-muted">
-            {source.seats.hero === OOP ? "Out of position" : "In position"} against the{" "}
-            {scenario.hero === "opener" ? scenario.defender : scenario.opener}
-            {". "}
-            {stage.street === "preflop"
-              ? "100bb deep, six handed."
-              : `${roundChips(view.pot)}bb in the middle.`}
-          </p>
+        // One column until the hand is over, then two on a wide screen. The
+        // review is the only thing here tall enough to push the table off a
+        // laptop screen, and it is also the only thing that does not exist
+        // until there is something to review, so the split arrives exactly
+        // when there is something to put in the second column.
+        <div
+          className={cn(
+            "grid gap-4",
+            stage.result && "xl:grid-cols-2 xl:items-start xl:gap-8",
+          )}
+        >
+          <div className="space-y-4">
+            <p className="text-center text-sm text-muted">
+              {source.seats.hero === OOP ? "Out of position" : "In position"} against the{" "}
+              {scenario.hero === "opener" ? scenario.defender : scenario.opener}
+              {". "}
+              {stage.street === "preflop"
+                ? "100bb deep, six handed."
+                : `${roundChips(view.pot)}bb in the middle.`}
+            </p>
 
-          <HandTable
-            view={view}
-            stage={stage}
-            turn={choosing ? "you" : thinking ? "opponent" : null}
-            thinking={thinking}
-            reducedMotion={reducedMotion}
-          />
+            <HandTable
+              view={view}
+              stage={stage}
+              turn={choosing ? "you" : thinking ? "opponent" : null}
+              thinking={thinking}
+              reducedMotion={reducedMotion}
+            />
 
-          {choosing && (
-            <div className="flex flex-wrap justify-center gap-3" aria-label="Your options" role="group">
-              {view.choice!.actions.map((action, at) => (
-                <ActionButton
-                  key={action.label}
-                  onClick={() => void act(at)}
-                  shortcut={String(at + 1)}
-                  emphasis={action.kind !== "fold" && action.kind !== "check"}
-                >
-                  {action.label}
-                </ActionButton>
-              ))}
+            {choosing && (
+              <ActionRow count={view.choice!.actions.length}>
+                {view.choice!.actions.map((action, at) => (
+                  <ActionButton
+                    key={action.label}
+                    onClick={() => void act(at)}
+                    shortcut={String(at + 1)}
+                    tone={toneOf(action.kind)}
+                  >
+                    {action.label}
+                  </ActionButton>
+                ))}
+              </ActionRow>
+            )}
+          </div>
+
+          {stage.result && (
+            <div className="space-y-4">
+              <Summary view={view} />
+
+              {classes && review && (
+                <div className="space-y-2">
+                  <p className="text-center text-xs text-muted">
+                    What the solver does with your whole range at that {review.street} decision:
+                  </p>
+                  <StrategyGrid
+                    actions={review.actions}
+                    strategy={classes}
+                    highlight={handClassOf(view.cards[0], view.cards[1])}
+                  />
+                </div>
+              )}
             </div>
           )}
-
-          {stage.result && <Summary view={view} />}
-
-          {classes && review && (
-            <div className="space-y-2">
-              <p className="text-center text-xs text-muted">
-                What the solver does with your whole range at that {review.street} decision:
-              </p>
-              <StrategyGrid
-                actions={review.actions}
-                strategy={classes}
-                highlight={handClassOf(view.cards[0], view.cards[1])}
-              />
-            </div>
-          )}
-        </>
+        </div>
       )}
 
-      <p className="text-center text-xs text-muted">{scenario.note}</p>
+      <p className="mx-auto max-w-2xl text-center text-xs text-muted">{scenario.note}</p>
     </>
   );
 }
