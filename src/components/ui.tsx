@@ -36,7 +36,7 @@ export function toneOf(kind: string): ActionTone {
  */
 function Keycap({ children }: { children: React.ReactNode }) {
   return (
-    <span className="hidden shrink-0 rounded border border-line bg-base px-1.5 py-px font-mono text-[0.6875rem] leading-normal text-muted sm:inline-block">
+    <span className="hidden shrink-0 rounded border border-line bg-page px-1.5 py-px font-mono text-[0.6875rem] leading-normal text-muted sm:inline-block">
       {children}
     </span>
   );
@@ -67,7 +67,7 @@ export function Chip({
         // the page to hit and they were 30px tall, under every touch guideline
         // there is. 44px is the one Apple and WCAG 2.5.5 both name.
         "inline-flex min-h-11 shrink-0 items-center rounded-full border px-3.5 text-sm transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-base",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-page",
         // Gold for the one you are on, which is already what gold means on this
         // screen -- it rings your own seat at the table. The old active chip was
         // felt green on a near-black page at 1.47:1, so which chip was selected
@@ -145,7 +145,7 @@ export function ActionButton({
         // one still centre their labels against each other; the row stretches
         // them to a common height on its own.
         "flex min-h-12 flex-col items-center justify-center rounded-lg border px-3 py-2 transition-colors sm:px-6",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-base",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-page",
         // Written out rather than looked up in a record so that the class
         // checker can see them. Every one of these colours has a floor it has
         // to clear and contrast.test.ts holds it there.
@@ -164,8 +164,13 @@ export function ActionButton({
       </span>
       {/* The size sits under the action rather than inside the label, so the
           button still reads as one word at a glance and the price is there
-          when you look for it. */}
-      {price && <span className="mt-0.5 block font-mono text-xs text-muted">{price}</span>}
+          when you look for it.
+
+          Ink, not muted. Muted is a colour for text on the page, and on a
+          filled button it measured 2:1 -- the size under "Open" was the least
+          readable thing on the screen. The smaller mono face is what makes it
+          secondary here; it does not need to be dimmer as well. */}
+      {price && <span className="mt-0.5 block font-mono text-xs text-ink">{price}</span>}
     </button>
   );
 }

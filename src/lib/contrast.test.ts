@@ -81,7 +81,7 @@ describe("buttons stand off the page", () => {
   // to be findable.
   for (const family of FAMILIES) {
     it(`${family.name}: its edge clears 3:1 against the page`, () => {
-      expect(ratio(family.edge, "base")).toBeGreaterThanOrEqual(3);
+      expect(ratio(family.edge, "page")).toBeGreaterThanOrEqual(3);
     });
   }
 
@@ -89,12 +89,12 @@ describe("buttons stand off the page", () => {
   // allowed to sit near the page and its edge does the work above.
   for (const family of FAMILIES.filter((f) => f.name !== "fold")) {
     it(`${family.name}: its fill clears 3:1 against the page, hovered or not`, () => {
-      expect(ratio(family.fill, "base")).toBeGreaterThanOrEqual(3);
-      expect(ratio(family.hover, "base")).toBeGreaterThanOrEqual(3);
+      expect(ratio(family.fill, "page")).toBeGreaterThanOrEqual(3);
+      expect(ratio(family.hover, "page")).toBeGreaterThanOrEqual(3);
     });
 
     it(`${family.name}: hovering makes it lighter, not darker`, () => {
-      expect(ratio(family.hover, "base")).toBeGreaterThan(ratio(family.fill, "base"));
+      expect(ratio(family.hover, "page")).toBeGreaterThan(ratio(family.fill, "page"));
     });
   }
 });
@@ -105,22 +105,38 @@ describe("labels are readable on the button they sit on", () => {
       expect(ratio("ink", family.fill)).toBeGreaterThanOrEqual(4.5);
       expect(ratio("ink", family.hover)).toBeGreaterThanOrEqual(4.5);
     });
+
+    // Both runs of text on an action button, not just the big one. The size
+    // under the label used to be `muted`, a colour meant for text on the page,
+    // and on the green fill it measured 2:1: the least readable thing on the
+    // screen sat on the button you press most. Ink is now the only colour
+    // either of them is allowed to be, so one ratio covers both.
+    it(`${family.name}: the price under the label clears 4.5:1 too`, () => {
+      expect(ratio("ink", family.fill)).toBeGreaterThanOrEqual(4.5);
+    });
+
+    // Muted stays legible where it does belong: on the page, and on the
+    // keycap, which is page-coloured precisely so this holds on every tone.
+    it(`${family.name}: its keycap is legible, being page-coloured`, () => {
+      expect(ratio("muted", "page")).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(family.fill, "page")).toBeGreaterThanOrEqual(1.2);
+    });
   }
 });
 
 describe("the rest of the palette", () => {
   it("keeps body text readable on the page", () => {
-    expect(ratio("ink", "base")).toBeGreaterThanOrEqual(4.5);
-    expect(ratio("muted", "base")).toBeGreaterThanOrEqual(4.5);
+    expect(ratio("ink", "page")).toBeGreaterThanOrEqual(4.5);
+    expect(ratio("muted", "page")).toBeGreaterThanOrEqual(4.5);
   });
 
   it("keeps the two verdict colours readable, since they are the fast read", () => {
-    expect(ratio("correct", "base")).toBeGreaterThanOrEqual(4.5);
-    expect(ratio("wrong", "base")).toBeGreaterThanOrEqual(4.5);
+    expect(ratio("correct", "page")).toBeGreaterThanOrEqual(4.5);
+    expect(ratio("wrong", "page")).toBeGreaterThanOrEqual(4.5);
   });
 
   it("makes the accent visible as a border and as a focus ring", () => {
-    expect(ratio("accent", "base")).toBeGreaterThanOrEqual(3);
+    expect(ratio("accent", "page")).toBeGreaterThanOrEqual(3);
     expect(ratio("accent", "felt")).toBeGreaterThanOrEqual(3);
   });
 
@@ -128,7 +144,7 @@ describe("the rest of the palette", () => {
     // The shortcut hint sits on its own page-coloured cap rather than on the
     // button, precisely so this one ratio holds on all three families instead
     // of three different ones that each have to be checked.
-    expect(ratio("muted", "base")).toBeGreaterThanOrEqual(4.5);
+    expect(ratio("muted", "page")).toBeGreaterThanOrEqual(4.5);
   });
 
   it("tells call and bet apart by hue, so it does not lean on lightness", () => {

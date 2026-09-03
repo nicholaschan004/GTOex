@@ -107,7 +107,7 @@ export function Drill() {
         same place on every hand and still on screen after the grid appears,
         which matters on a phone where Enter is not an option.
       */}
-      <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-line bg-base/95 py-2.5 backdrop-blur sm:gap-3 sm:py-3">
+      <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-line bg-page/95 py-2.5 backdrop-blur sm:gap-3 sm:py-3">
         <h1 className="text-lg font-semibold tracking-tight text-ink sm:text-xl">GTO Trainer</h1>
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="flex items-center gap-3 font-mono text-xs text-muted sm:text-sm">
@@ -132,18 +132,13 @@ export function Drill() {
             everywhere else here: this one is yours. It was felt green, which
             measured 1.47:1 against the page, so the control the whole loop
             runs through was the hardest thing on screen to find.
-
-            text-surface rather than text-base, for the reason PokerTable gives:
-            Tailwind already ships text-base as a font size, so the darkest
-            colour in the theme cannot be reached that way, and the class
-            checker cannot warn about it because the class does exist.
           */}
           <button
             onClick={nextHand}
             disabled={!answered}
             className={cn(
               "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 text-sm transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-base",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-page",
               answered
                 ? "bg-accent font-medium text-surface hover:bg-accent/90"
                 : "border border-act-fold-edge text-muted opacity-50",
@@ -210,7 +205,7 @@ export function Drill() {
           {overall.attempts > 0 && (
             <button
               onClick={() => setProgress(clearProgress())}
-              className="min-h-11 shrink-0 self-start rounded border border-act-fold-edge px-3 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-base sm:self-auto"
+              className="min-h-11 shrink-0 self-start rounded border border-act-fold-edge px-3 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-page sm:self-auto"
             >
               Reset stats
             </button>

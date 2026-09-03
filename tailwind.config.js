@@ -7,7 +7,15 @@ export default {
         // Surfaces run from the page background up to a raised card. Kept as
         // named steps rather than raw greys so a later theme pass changes one
         // file instead of every component.
-        base: "#0a0d0c",
+        //
+        // `page` and not `base`. Tailwind ships a font size called base, and a
+        // colour of the same name makes it generate `.text-base` twice: once
+        // setting font-size, once setting colour. Both rules match, so every
+        // `text-base` in the codebase was also painting its text #0a0d0c on
+        // whatever it sat on -- which is how the action buttons ended up with
+        // near-black labels at 1.38:1. No colour here may share a name with a
+        // font size; check-classes.mjs now fails the build if one does.
+        page: "#0a0d0c",
         surface: "#121614",
         raised: "#1a201d",
         line: "#2a322e",

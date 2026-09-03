@@ -35,7 +35,7 @@ const ROLE_STYLE: Record<SeatRole, string> = {
   // Folded seats stay on the table rather than disappearing. Six seats that
   // sometimes number four would make the picture a different shape every hand,
   // and how many players are left is the fact being taught.
-  folded: "border-line bg-base text-muted opacity-40",
+  folded: "border-line bg-page text-muted opacity-40",
 };
 
 /**
@@ -113,9 +113,8 @@ function SeatMarker({ seat, at }: { seat: Seat; at: { left: string; top: string 
           </span>
         )}
 
-        {/* text-surface rather than text-base: Tailwind already ships text-base
-            as a font size, so the `base` colour cannot be reached that way, and
-            the class checker would not catch it because the class does exist. */}
+        {/* text-surface, one step up from the page, so the D reads as a button
+            on the seat rather than a hole in it. */}
         {seat.dealer && (
           <span
             className="absolute flex items-center justify-center rounded-full bg-ink font-bold text-surface"

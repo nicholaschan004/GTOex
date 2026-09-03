@@ -164,7 +164,7 @@ function Seat({
             {/* Allowed to wrap. A gutter this narrow cannot hold "opens to
                 2.5bb" on one line, and two lines inside the gutter beats one
                 line across the cards. */}
-            <span className="inline-block rounded bg-base/70 px-1.5 py-0.5 text-[0.625rem] leading-tight text-ink sm:px-2 sm:text-xs">
+            <span className="inline-block rounded bg-page/70 px-1.5 py-0.5 text-[0.625rem] leading-tight text-ink sm:px-2 sm:text-xs">
               {said}
             </span>
           </Land>
@@ -240,7 +240,7 @@ function ChipIcon() {
 function CardBack({ scale }: { scale: number }) {
   return (
     <div
-      className="rounded-lg border border-felt-rail bg-gradient-to-br from-raised to-base shadow-lg ring-1 ring-black/30"
+      className="rounded-lg border border-felt-rail bg-gradient-to-br from-raised to-page shadow-lg ring-1 ring-black/30"
       style={{ width: `${4.5 * scale}rem`, height: `${6.25 * scale}rem` }}
       role="img"
       aria-label="Face down card"
